@@ -11,6 +11,8 @@ use App\Models\RefJenisKelamin;
 use App\Models\RefJenisProgram;
 use App\Models\RefStatus;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\Models\Permission;
 
 class SeedInitialData extends Command
 {
@@ -35,6 +37,9 @@ class SeedInitialData extends Command
     {
         $this->info('Memulai seed data awal...');
         
+        // Seed roles and permissions
+        $this->seedRolesAndPermissions();
+        
         // Seed data Dinas
         $this->seedDinas();
         
@@ -51,6 +56,42 @@ class SeedInitialData extends Command
         $this->seedReferensi();
         
         $this->info('Seed data awal selesai!');
+    }
+    
+    /**
+     * Seed roles and permissions
+     */
+    private function seedRolesAndPermissions()
+    {
+        $this->info('Seeding roles and permissions...');
+        
+        // Create roles
+        $adminRole = Role::firstOrCreate(['name' => 'admin']);
+        $dinasRole = Role::firstOrCreate(['name' => 'dinas']);
+        $puskesmasRole = Role::firstOrCreate(['name' => 'puskesmas']);
+        
+        // Create permissions
+        $manageUsers = Permission::firstOrCreate(['name' => 'manage users']);
+        $manageTargets = Permission::firstOrCreate(['name' => 'manage targets']);
+        $approveReports = Permission::firstOrCreate(['name' => 'approve reports']);
+        $submitReports = Permission::firstOrCreate(['name' => 'submit reports']);
+        $viewReports = Permission::firstOrCreate(['name' => 'view reports']);
+        $managePatients = Permission::firstOrCreate(['name' => 'manage patients']);
+        
+        // Assign permissions to roles
+        $adminRole->syncPermissions([
+            $manageUsers, $manageTargets, $approveReports, $viewReports, $submitReports, $managePatients
+        ]);
+        
+        $dinasRole->syncPermissions([
+            $manageTargets, $approveReports, $viewReports
+        ]);
+        
+        $puskesmasRole->syncPermissions([
+            $submitReports, $managePatients, $viewReports
+        ]);
+        
+        $this->info('Roles and permissions berhasil ditambahkan.');
     }
     
     /**
@@ -113,30 +154,46 @@ class SeedInitialData extends Command
     {
         $this->info('Seeding data User...');
         
+        $dinas = Dinas::first();
+        
+        if (!$dinas) {
+            $this->error('Data Dinas tidak ditemukan!');
+            return;
+        }
+        
         if (User::count() === 0) {
             // Buat user admin
-            User::create([
+            $admin = User::create([
                 'username' => 'admin',
                 'password' => Hash::make('admin123'),
                 'nama_puskesmas' => 'Administrator',
+                'isadmin' => true,
+                'dinas_id' => $dinas->id,
             ]);
+            $admin->assignRole('admin');
             
             // Buat user dinas
-            User::create([
+            $dinasUser = User::create([
                 'username' => 'dinas',
                 'password' => Hash::make('dinas123'),
                 'nama_puskesmas' => 'Dinas Kesehatan',
+                'isadmin' => true,
+                'dinas_id' => $dinas->id,
             ]);
+            $dinasUser->assignRole('dinas');
             
             // Buat user untuk setiap puskesmas
             $puskesmas = Puskesmas::all();
             
             foreach ($puskesmas as $p) {
-                User::create([
+                $puskesmasUser = User::create([
                     'username' => strtolower(str_replace(' ', '', $p->kode)),
                     'password' => Hash::make('puskesmas123'),
                     'nama_puskesmas' => $p->nama,
+                    'isadmin' => false,
+                    'dinas_id' => null,
                 ]);
+                $puskesmasUser->assignRole('puskesmas');
             }
             
             $this->info('Data User berhasil ditambahkan.');

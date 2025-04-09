@@ -5,13 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
-
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+    use HasFactory, Notifiable, HasRoles;
 
     /**
      * The attributes that are mass assignable.
@@ -22,6 +20,8 @@ class User extends Authenticatable
         'username',
         'password',
         'nama_puskesmas',
+        'isadmin',
+        'dinas_id',
     ];
 
     /**
@@ -40,23 +40,31 @@ class User extends Authenticatable
      * @var array<string, string>
      */
     protected $casts = [
-        'password' => 'hashed',
+        'isadmin' => 'boolean',
     ];
 
     /**
-     * Get pemeriksaan records created by this user.
+     * Get the Dinas that the user belongs to if they are an admin
      */
-    public function pemeriksaan()
+    public function dinas()
     {
-        return $this->hasMany(Pemeriksaan::class, 'petugas_id');
+        return $this->belongsTo(Dinas::class);
     }
 
     /**
-     * Get laporan bulanan records created by this user.
+     * Get the associated Puskesmas for this user
+     * This is used for non-admin users
      */
-    public function laporanBulanan()
+    public function puskesmas()
     {
-        return $this->hasMany(LaporanBulanan::class, 'petugas_id');
+        return $this->hasOne(Puskesmas::class, 'nama', 'nama_puskesmas');
     }
-    
+
+    /**
+     * Check if the user is an admin
+     */
+    public function isDinas()
+    {
+        return $this->isadmin === true;
+    }
 }
