@@ -13,7 +13,7 @@ use App\Models\RefStatus;
 use App\Models\SasaranPuskesmas;
 use App\Models\PencapaianBulanan;
 use App\Traits\AnalisisHTDM;
-use Carbon\Carbon;
+use \Carbon\Carbon;
 
 class GenerateReports extends Command
 {

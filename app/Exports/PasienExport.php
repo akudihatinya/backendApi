@@ -2,14 +2,26 @@
 
 namespace App\Exports;
 
-use App\Models\Pasien;
+use App\Models\LaporanBulanan;
+use App\Models\LaporanDetail;
+use App\Models\Puskesmas;
+use App\Models\RefJenisProgram;
+use App\Models\RefJenisKelamin;
+use App\Models\RefStatus;
+use App\Models\TahunProgram;
+// Tambahkan use statement untuk Laravel Excel
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Maatwebsite\Excel\Concerns\WithCustomStartCell;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use Illuminate\Support\Collection;
 
 class PasienExport implements FromCollection, WithHeadings, WithMapping, WithStyles, WithTitle, ShouldAutoSize
 {

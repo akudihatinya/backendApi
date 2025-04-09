@@ -6,10 +6,10 @@ use App\Models\LaporanBulanan;
 use App\Models\LaporanDetail;
 use App\Models\Puskesmas;
 use App\Models\RefJenisProgram;
+use App\Models\RefJenisKelamin;
 use App\Models\RefStatus;
 use App\Models\TahunProgram;
-use App\Models\SasaranPuskesmas;
-use App\Models\SasaranTahunan;
+// Tambahkan use statement untuk Laravel Excel
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
