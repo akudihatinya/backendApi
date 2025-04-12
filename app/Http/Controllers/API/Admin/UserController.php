@@ -6,13 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 
 class UserController extends Controller
 {
-    public function index()
+    /**
+     * Display a listing of the users.
+     */
+    public function index(): JsonResponse
     {
         $users = User::where('role', 'puskesmas')
             ->with('puskesmas')
@@ -23,14 +27,20 @@ class UserController extends Controller
         ]);
     }
     
-    public function show(User $user)
+    /**
+     * Display the specified user.
+     */
+    public function show(User $user): JsonResponse
     {
         return response()->json([
             'user' => new UserResource($user),
         ]);
     }
     
-    public function update(UpdateUserRequest $request, User $user)
+    /**
+     * Update the specified user.
+     */
+    public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
         $data = $request->validated();
         
@@ -58,7 +68,10 @@ class UserController extends Controller
         ]);
     }
     
-    public function resetPassword(Request $request, User $user)
+    /**
+     * Reset user's password.
+     */
+    public function resetPassword(Request $request, User $user): JsonResponse
     {
         $request->validate([
             'password' => 'required|string|min:8|confirmed',
@@ -73,6 +86,34 @@ class UserController extends Controller
         
         return response()->json([
             'message' => 'Password berhasil direset',
+        ]);
+    }
+
+    /**
+     * Remove the specified user.
+     */
+    public function destroy(User $user): JsonResponse
+    {
+        // Pastikan hanya user puskesmas yang bisa dihapus (tidak bisa menghapus admin)
+        if ($user->role === 'admin') {
+            return response()->json([
+                'message' => 'Tidak bisa menghapus admin',
+            ], 403);
+        }
+
+        // Simpan nama user untuk pesan respons
+        $userName = $user->name;
+        
+        // Hapus foto profil jika ada
+        if ($user->profile_picture) {
+            Storage::delete('public/' . $user->profile_picture);
+        }
+        
+        // Hapus user (akan trigger cascade delete untuk relasi puskesmas dll)
+        $user->delete();
+        
+        return response()->json([
+            'message' => "User {$userName} berhasil dihapus",
         ]);
     }
 }

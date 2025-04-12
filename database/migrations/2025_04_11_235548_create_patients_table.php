@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('patients', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('puskesmas_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('puskesmas_id')->constrained()->onDelete('cascade');
             $table->string('nik', 16)->nullable()->unique();
             $table->string('bpjs_number', 20)->nullable();
             $table->string('name');

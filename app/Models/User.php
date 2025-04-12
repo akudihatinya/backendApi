@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -44,4 +45,23 @@ class User extends Authenticatable
         return $this->role === 'puskesmas';
     }
     
+    /**
+     * Boot the model.
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Menjalankan aksi sebelum user dihapus
+        static::deleting(function ($user) {
+            // Revoke semua token
+            $user->tokens()->delete();
+            
+            // Hapus refresh token
+            $user->refreshTokens()->delete();
+            
+            // Log aktivitas penghapusan (opsional)
+            \Illuminate\Support\Facades\Log::info("User {$user->name} dihapus oleh " . auth()->user()->name);
+        });
+    }
 }
