@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\API\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\StoreUserRequest;
 use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Resources\UserResource;
+use App\Models\Puskesmas;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 
@@ -115,5 +118,63 @@ class UserController extends Controller
         return response()->json([
             'message' => "User {$userName} berhasil dihapus",
         ]);
+    }
+    
+     /**
+     * Store a newly created user.
+     */
+    public function store(StoreUserRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        
+        // Upload foto profil jika ada
+        if ($request->hasFile('profile_picture')) {
+            $path = $request->file('profile_picture')->store('profile-pictures', 'public');
+            $data['profile_picture'] = $path;
+        }
+        
+        // Hash password
+        $data['password'] = Hash::make($data['password']);
+        
+        // Simpan data dalam transaction untuk memastikan konsistensi
+        try {
+            DB::beginTransaction();
+            
+            // Buat user baru
+            $user = User::create([
+                'username' => $data['username'],
+                'password' => $data['password'],
+                'name' => $data['name'],
+                'role' => $data['role'],
+                'profile_picture' => $data['profile_picture'] ?? null,
+            ]);
+            
+            // Buat puskesmas terkait
+            $puskesmas = Puskesmas::create([
+                'user_id' => $user->id,
+                'name' => $data['puskesmas_name'],
+            ]);
+            
+            DB::commit();
+            
+            // Reload user with puskesmas relationship
+            $user->load('puskesmas');
+            
+            return response()->json([
+                'message' => 'User puskesmas berhasil ditambahkan',
+                'user' => new UserResource($user),
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            // Hapus file yang diupload jika ada error
+            if (isset($data['profile_picture'])) {
+                Storage::delete('public/' . $data['profile_picture']);
+            }
+            
+            return response()->json([
+                'message' => 'Gagal menambahkan user: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }
