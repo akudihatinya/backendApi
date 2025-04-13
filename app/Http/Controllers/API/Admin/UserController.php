@@ -66,7 +66,7 @@ class UserController extends Controller
 
             $user->load('puskesmas');
 
-            // Buat token
+            // Generate token
             $accessToken = $user->createToken('auth_token')->plainTextToken;
             $refreshToken = Str::random(60);
 
@@ -159,6 +159,40 @@ class UserController extends Controller
 
         return response()->json([
             'message' => "User {$userName} berhasil dihapus",
+        ]);
+    }
+
+    public function me(Request $request): JsonResponse
+    {
+        return response()->json([
+            'user' => new UserResource($request->user()),
+        ]);
+    }
+
+    public function updateMe(UpdateUserRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validated();
+
+        if (!empty($data['password'])) {
+            $data['password'] = Hash::make($data['password']);
+        } else {
+            unset($data['password']);
+        }
+
+        if ($request->hasFile('profile_picture')) {
+            if ($user->profile_picture) {
+                Storage::delete('public/' . $user->profile_picture);
+            }
+
+            $data['profile_picture'] = $request->file('profile_picture')->store('profile-pictures', 'public');
+        }
+
+        $user->update($data);
+
+        return response()->json([
+            'message' => 'Profil berhasil diperbarui',
+            'user' => new UserResource($user),
         ]);
     }
 }

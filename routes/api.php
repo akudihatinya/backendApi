@@ -39,6 +39,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Profile
     Route::post('/profile', [ProfileController::class, 'update']);
 
+    // Akun sendiri
+    Route::get('/me', [UserController::class, 'me']);
+    Route::put('/me', [UserController::class, 'updateMe']);
+
     // Admin routes
     Route::middleware(IsAdmin::class)->prefix('admin')->group(function () {
         // User management
