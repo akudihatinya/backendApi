@@ -7,8 +7,6 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\ChangePasswordRequest;
 use App\Http\Resources\UserResource;
 use App\Models\UserRefreshToken;
-use App\Models\User;
-use App\Models\Puskesmas;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -22,25 +20,9 @@ class AuthController extends Controller
     {
         $credentials = $request->only('username', 'password');
         
-        // Cek terlebih dahulu apakah username ada di database
-        $user = User::where('username', $credentials['username'])->first();
-        
-        if (!$user) {
-            return response()->json([
-                'message' => 'Username tidak ditemukan',
-                'errors' => [
-                    'username' => ['Username tidak terdaftar dalam sistem']
-                ]
-            ], 401);
-        }
-        
-        // Jika username ditemukan, cek kredensial
         if (!Auth::attempt($credentials)) {
             return response()->json([
-                'message' => 'Password salah',
-                'errors' => [
-                    'password' => ['Password yang Anda masukkan salah']
-                ]
+                'message' => 'Username atau password salah',
             ], 401);
         }
         

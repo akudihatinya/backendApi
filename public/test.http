@@ -1,5 +1,5 @@
 POST http://localhost:8000/api/admin/users
-Authorization:6|hNV3SVUIRnmZAIz4tm0hRTlcPhCaLFaVlRPiFenNfcb26fbd
+Authorization:7|uHeKgoPHEx8dbWwIX1NNg5x8raDZh9iaR3zyocvC2a27aad1
 Content-Type: application/json
 
 
