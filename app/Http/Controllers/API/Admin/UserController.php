@@ -18,12 +18,33 @@ use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $users = User::where('role', 'puskesmas')->with('puskesmas')->get();
+        $query = User::query();
+        
+        // Filter berdasarkan parameter is_admin
+        if ($request->has('is_admin')) {
+            $isAdmin = filter_var($request->is_admin, FILTER_VALIDATE_BOOLEAN);
+            
+            if ($isAdmin) {
+                // Jika is_admin=1, tampilkan hanya admin
+                $query->where('role', 'admin');
+            } else {
+                // Jika is_admin=0, tampilkan selain admin
+                $query->where('role', '!=', 'admin');
+            }
+        }
+        // Jika tidak ada parameter is_admin, tampilkan semua user (termasuk admin)
+        
+        // Load relationship puskesmas untuk user yang memiliki role puskesmas
+        $users = $query->with(['puskesmas' => function($query) {
+            // Relationship akan dimuat hanya jika user memiliki relasi puskesmas
+        }])->get();
 
         return response()->json([
             'users' => UserResource::collection($users),
+            'count' => $users->count(),
+            'filter' => $request->has('is_admin') ? ($request->is_admin ? 'admin' : 'non-admin') : 'all'
         ]);
     }
 
