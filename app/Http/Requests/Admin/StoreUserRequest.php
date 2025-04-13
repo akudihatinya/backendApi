@@ -4,6 +4,7 @@ namespace App\Http\Requests\Admin;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 
 class StoreUserRequest extends FormRequest
 {
@@ -25,8 +26,7 @@ class StoreUserRequest extends FormRequest
             'password' => 'required|string|min:8',
             'name' => 'required|string|max:255',
             'role' => 'required|in:puskesmas', // Hanya bisa membuat user puskesmas
-            'profile_picture' => 'nullable|image|max:2048',
-            'puskesmas_name' => 'required|string|max:255|unique:puskesmas,name',
+            'profile_picture' => 'nullable',
         ];
     }
 
@@ -44,9 +44,25 @@ class StoreUserRequest extends FormRequest
             'role.required' => 'Role wajib diisi',
             'role.in' => 'Role harus puskesmas',
             'profile_picture.image' => 'File harus berupa gambar',
-            'profile_picture.max' => 'Ukuran gambar maksimal 2MB',
-            'puskesmas_name.required' => 'Nama puskesmas wajib diisi',
-            'puskesmas_name.unique' => 'Nama puskesmas sudah digunakan',
         ];
+    }
+    
+    /**
+     * Prepare the data for validation.
+     */
+    protected function prepareForValidation(): void
+    {
+        // Jika profile_picture adalah string dan bukan file
+        if ($this->has('profile_picture') && 
+            is_string($this->profile_picture) && 
+            !$this->hasFile('profile_picture')) {
+            
+            // Jika kosong, set null
+            if (empty(trim($this->profile_picture))) {
+                $this->merge([
+                    'profile_picture' => null
+                ]);
+            }
+        }
     }
 }

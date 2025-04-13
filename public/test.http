@@ -1,11 +1,12 @@
 POST http://localhost:8000/api/admin/users
-Authorization: 4|pyrqnGHlQTWwadtTDRSpDssMZE7JCvHxk0Ylfm7J2a599304
+Authorization:6|hNV3SVUIRnmZAIz4tm0hRTlcPhCaLFaVlRPiFenNfcb26fbd
 Content-Type: application/json
 
-{
-  "username": "puskesmas27",
-  "name": "Puskesmas 27",  
-  "role": "puskesmas",
-  "profile_picture": ""
 
+  {
+  "username": "puskesmas27",
+  "password": "password123",
+  "name": "Puskesmas 27",
+  "role": "puskesmas"
 }
+

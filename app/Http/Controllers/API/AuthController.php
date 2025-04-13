@@ -7,10 +7,13 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\ChangePasswordRequest;
 use App\Http\Resources\UserResource;
 use App\Models\UserRefreshToken;
+use App\Models\User;
+use App\Models\Puskesmas;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
@@ -19,9 +22,25 @@ class AuthController extends Controller
     {
         $credentials = $request->only('username', 'password');
         
+        // Cek terlebih dahulu apakah username ada di database
+        $user = User::where('username', $credentials['username'])->first();
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'Username tidak ditemukan',
+                'errors' => [
+                    'username' => ['Username tidak terdaftar dalam sistem']
+                ]
+            ], 401);
+        }
+        
+        // Jika username ditemukan, cek kredensial
         if (!Auth::attempt($credentials)) {
             return response()->json([
-                'message' => 'Username atau password salah',
+                'message' => 'Password salah',
+                'errors' => [
+                    'password' => ['Password yang Anda masukkan salah']
+                ]
             ], 401);
         }
         
@@ -40,6 +59,9 @@ class AuthController extends Controller
             'expires_at' => Carbon::now()->addDays(30),
         ]);
         
+        // Log aktivitas login
+        Log::info("User {$user->name} berhasil login");
+        
         return response()->json([
             'user' => new UserResource($user),
             'access_token' => $accessToken,
@@ -50,11 +72,16 @@ class AuthController extends Controller
     
     public function logout(Request $request)
     {
-        // Revoke all tokens
-        $request->user()->tokens()->delete();
+        $user = $request->user();
         
-        // Delete refresh tokens
-        UserRefreshToken::where('user_id', $request->user()->id)->delete();
+        // Revoke all tokens
+        $user->tokens()->delete();
+        
+        // Delete refresh tokens using relationship
+        $user->refreshTokens()->delete();
+        
+        // Log aktivitas logout
+        Log::info("User {$user->name} berhasil logout");
         
         return response()->json([
             'message' => 'Berhasil logout',
@@ -77,7 +104,14 @@ class AuthController extends Controller
             ], 401);
         }
         
+        // Ambil user melalui relasi yang sudah didefinisikan
         $user = $refreshToken->user;
+        
+        if (!$user) {
+            return response()->json([
+                'message' => 'User tidak ditemukan',
+            ], 401);
+        }
         
         // Revoke all tokens
         $user->tokens()->delete();
@@ -94,6 +128,9 @@ class AuthController extends Controller
             'expires_at' => Carbon::now()->addDays(30),
         ]);
         
+        // Log aktivitas refresh token
+        Log::info("User {$user->name} melakukan refresh token");
+        
         return response()->json([
             'user' => new UserResource($user),
             'access_token' => $accessToken,
@@ -104,14 +141,34 @@ class AuthController extends Controller
     
     public function user(Request $request)
     {
+        $user = $request->user();
+        
+        // Load puskesmas relationship if user is a puskesmas
+        if ($user->isPuskesmas()) {
+            $user->load('puskesmas');
+        }
+        
         return response()->json([
-            'user' => new UserResource($request->user()),
+            'user' => new UserResource($user),
+            'role' => $user->role,
+            'is_admin' => $user->isAdmin(),
+            'is_puskesmas' => $user->isPuskesmas(),
         ]);
     }
     
     public function changePassword(ChangePasswordRequest $request)
     {
         $user = $request->user();
+        
+        // Verifikasi password lama (jika ada dalam request)
+        if ($request->has('old_password') && !Hash::check($request->old_password, $user->password)) {
+            return response()->json([
+                'message' => 'Password lama tidak sesuai',
+                'errors' => [
+                    'old_password' => ['Password lama yang Anda masukkan salah']
+                ]
+            ], 422);
+        }
         
         $user->update([
             'password' => Hash::make($request->password),
@@ -120,8 +177,32 @@ class AuthController extends Controller
         // Revoke all tokens except current
         $user->tokens()->where('id', '<>', $request->user()->currentAccessToken()->id)->delete();
         
+        // Log aktivitas perubahan password
+        Log::info("User {$user->name} berhasil mengubah password");
+        
         return response()->json([
             'message' => 'Password berhasil diubah',
+        ]);
+    }
+    
+    /**
+     * Mendapatkan informasi pengguna dengan role puskesmas beserta data puskesmasnya
+     */
+    public function puskesmasProfile(Request $request)
+    {
+        $user = $request->user();
+        
+        if (!$user->isPuskesmas() || !$user->puskesmas) {
+            return response()->json([
+                'message' => 'Profil puskesmas tidak ditemukan',
+            ], 404);
+        }
+        
+        $user->load('puskesmas');
+        
+        return response()->json([
+            'user' => new UserResource($user),
+            'puskesmas' => $user->puskesmas,
         ]);
     }
 }
