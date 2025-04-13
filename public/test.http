@@ -2,10 +2,10 @@ POST http://localhost:8000/api/admin/users
 Authorization:7|uHeKgoPHEx8dbWwIX1NNg5x8raDZh9iaR3zyocvC2a27aad1
 Content-Type: application/json
 
-
-  {
+{
   "username": "puskesmas27",
   "password": "password123",
+  "profile_picture": "https://example.com/profile.jpg",
   "name": "Puskesmas 27",
   "role": "puskesmas"
 }

@@ -8,11 +8,13 @@ use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\Puskesmas;
 use App\Models\User;
+use App\Models\UserRefreshToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
@@ -64,9 +66,22 @@ class UserController extends Controller
 
             $user->load('puskesmas');
 
+            // Buat token
+            $accessToken = $user->createToken('auth_token')->plainTextToken;
+            $refreshToken = Str::random(60);
+
+            UserRefreshToken::create([
+                'user_id' => $user->id,
+                'refresh_token' => $refreshToken,
+                'expires_at' => now()->addDays(30),
+            ]);
+
             return response()->json([
                 'message' => 'User puskesmas berhasil ditambahkan',
                 'user' => new UserResource($user),
+                'access_token' => $accessToken,
+                'refresh_token' => $refreshToken,
+                'token_type' => 'Bearer',
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
