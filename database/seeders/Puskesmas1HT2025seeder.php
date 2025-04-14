@@ -18,7 +18,7 @@ class Puskesmas1HT2025Seeder extends Seeder
         $faker = Faker::create('id_ID');
 
         // Ambil puskesmas pertama (puskesmas1)
-        $puskesmas = Puskesmas::where('name', 'puskesmas1')->first();
+        $puskesmas = Puskesmas::where('name', 'Puskesmas 1')->first();
 
         if (!$puskesmas) {
             $this->command->error('Puskesmas dengan nama "puskesmas1" tidak ditemukan!');
