@@ -21,11 +21,11 @@ class UserController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = User::query();
-        
+
         // Filter berdasarkan parameter is_admin
         if ($request->has('is_admin')) {
             $isAdmin = filter_var($request->is_admin, FILTER_VALIDATE_BOOLEAN);
-            
+
             if ($isAdmin) {
                 // Jika is_admin=1, tampilkan hanya admin
                 $query->where('role', 'admin');
@@ -34,19 +34,38 @@ class UserController extends Controller
                 $query->where('role', '!=', 'admin');
             }
         }
-        // Jika tidak ada parameter is_admin, tampilkan semua user (termasuk admin)
-        
+
+        // Tentukan jumlah item per halaman (default: 10)
+        $perPage = 10;
+        if ($request->has('per_page')) {
+            // Hanya izinkan nilai 10, 25, atau 100
+            $requestedPerPage = (int)$request->per_page;
+            if (in_array($requestedPerPage, [10, 25, 100])) {
+                $perPage = $requestedPerPage;
+            }
+        }
+
         // Load relationship puskesmas untuk user yang memiliki role puskesmas
-        $users = $query->with(['puskesmas' => function($query) {
+        $users = $query->with(['puskesmas' => function ($query) {
             // Relationship akan dimuat hanya jika user memiliki relasi puskesmas
-        }])->get();
+        }])->paginate($perPage);
 
         return response()->json([
             'users' => UserResource::collection($users),
-            'count' => $users->count(),
+            'pagination' => [
+                'total' => $users->total(),
+                'per_page' => $users->perPage(),
+                'current_page' => $users->currentPage(),
+                'last_page' => $users->lastPage(),
+                'from' => $users->firstItem(),
+                'to' => $users->lastItem(),
+                'next_page_url' => $users->nextPageUrl(),
+                'prev_page_url' => $users->previousPageUrl(),
+            ],
             'filter' => $request->has('is_admin') ? ($request->is_admin ? 'admin' : 'non-admin') : 'all'
         ]);
     }
+
 
     public function show(User $user): JsonResponse
     {

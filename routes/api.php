@@ -60,10 +60,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/yearly-targets/{target}', [YearlyTargetController::class, 'update']);
         Route::delete('/yearly-targets/{target}', [YearlyTargetController::class, 'destroy']);
 
-        // Statistics
+        // Statistics API Endpoints
         Route::get('/statistics', [StatisticsController::class, 'index']);
-        Route::get('/statistics/export-pdf', [StatisticsController::class, 'exportPdf']);
-        Route::get('/statistics/export-excel', [StatisticsController::class, 'exportExcel']);
+        Route::get('/statistics/ht', [StatisticsController::class, 'htStatistics']);
+        Route::get('/statistics/dm', [StatisticsController::class, 'dmStatistics']);
+
+        // Export endpoints
+        Route::get('/statistics/export', [StatisticsController::class, 'exportStatistics']);
+        Route::get('/statistics/export/ht', [StatisticsController::class, 'exportHtStatistics']);
+        Route::get('/statistics/export/dm', [StatisticsController::class, 'exportDmStatistics']);
     });
 
     // Puskesmas routes

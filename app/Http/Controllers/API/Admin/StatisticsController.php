@@ -9,37 +9,74 @@ use App\Models\Patient;
 use App\Models\Puskesmas;
 use App\Models\YearlyTarget;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 
 class StatisticsController extends Controller
 {
-    public function index(Request $request)
+    // ... Metode index dan metode lainnya tetap sama ...
+    
+    /**
+     * Export statistik ke format PDF atau Excel
+     */
+    public function exportStatistics(Request $request)
     {
         $year = $request->year ?? Carbon::now()->year;
+        $diseaseType = $request->type ?? 'all'; // Nilai default: 'all', bisa juga 'ht' atau 'dm'
+        
+        // Validasi nilai disease_type
+        if (!in_array($diseaseType, ['all', 'ht', 'dm'])) {
+            return response()->json([
+                'message' => 'Parameter type tidak valid. Gunakan all, ht, atau dm.',
+            ], 400);
+        }
+        
+        // Format export (pdf atau excel)
+        $format = $request->format ?? 'excel';
+        if (!in_array($format, ['pdf', 'excel'])) {
+            return response()->json([
+                'message' => 'Format tidak valid. Gunakan pdf atau excel.',
+            ], 400);
+        }
+        
+        // Ambil data puskesmas
+        $puskesmasQuery = Puskesmas::query();
+        
+        // Jika ada filter nama puskesmas
+        if ($request->has('name')) {
+            $puskesmasQuery->where('name', 'like', '%' . $request->name . '%');
+        }
+        
+        $puskesmasAll = $puskesmasQuery->get();
         
         $statistics = [];
         
-        $puskesmas = Puskesmas::all();
-        
-        foreach ($puskesmas as $puskesmas) {
-            $htTarget = YearlyTarget::where('puskesmas_id', $puskesmas->id)
-                ->where('disease_type', 'ht')
-                ->where('year', $year)
-                ->first();
-                
-            $dmTarget = YearlyTarget::where('puskesmas_id', $puskesmas->id)
-                ->where('disease_type', 'dm')
-                ->where('year', $year)
-                ->first();
-            
-            $htData = $this->getHtStatistics($puskesmas->id, $year);
-            $dmData = $this->getDmStatistics($puskesmas->id, $year);
-            
-            $statistics[] = [
+        foreach ($puskesmasAll as $puskesmas) {
+            $data = [
                 'puskesmas_id' => $puskesmas->id,
                 'puskesmas_name' => $puskesmas->name,
-                'ht' => [
+            ];
+            
+            // Ambil data HT jika diperlukan
+            if ($diseaseType === 'all' || $diseaseType === 'ht') {
+                $htTarget = YearlyTarget::where('puskesmas_id', $puskesmas->id)
+                    ->where('disease_type', 'ht')
+                    ->where('year', $year)
+                    ->first();
+                
+                $htData = $this->getHtStatistics($puskesmas->id, $year);
+                
+                $data['ht'] = [
                     'target' => $htTarget ? $htTarget->target_count : 0,
                     'total_patients' => $htData['total_patients'],
                     'achievement_percentage' => $htTarget && $htTarget->target_count > 0
@@ -48,8 +85,19 @@ class StatisticsController extends Controller
                     'standard_patients' => $htData['standard_patients'],
                     'controlled_patients' => $htData['controlled_patients'],
                     'monthly_data' => $htData['monthly_data'],
-                ],
-                'dm' => [
+                ];
+            }
+            
+            // Ambil data DM jika diperlukan
+            if ($diseaseType === 'all' || $diseaseType === 'dm') {
+                $dmTarget = YearlyTarget::where('puskesmas_id', $puskesmas->id)
+                    ->where('disease_type', 'dm')
+                    ->where('year', $year)
+                    ->first();
+                
+                $dmData = $this->getDmStatistics($puskesmas->id, $year);
+                
+                $data['dm'] = [
                     'target' => $dmTarget ? $dmTarget->target_count : 0,
                     'total_patients' => $dmData['total_patients'],
                     'achievement_percentage' => $dmTarget && $dmTarget->target_count > 0
@@ -58,251 +106,320 @@ class StatisticsController extends Controller
                     'standard_patients' => $dmData['standard_patients'],
                     'controlled_patients' => $dmData['controlled_patients'],
                     'monthly_data' => $dmData['monthly_data'],
-                ],
-            ];
+                ];
+            }
+            
+            $statistics[] = $data;
         }
         
-        // Sort by achievement percentage (HT + DM) for ranking
-        usort($statistics, function ($a, $b) {
-            $aTotal = $a['ht']['achievement_percentage'] + $a['dm']['achievement_percentage'];
-            $bTotal = $b['ht']['achievement_percentage'] + $b['dm']['achievement_percentage'];
-            return $bTotal <=> $aTotal;
-        });
+        // Sort by achievement percentage berdasarkan jenis penyakit
+        if ($diseaseType === 'ht') {
+            usort($statistics, function ($a, $b) {
+                return $b['ht']['achievement_percentage'] <=> $a['ht']['achievement_percentage'];
+            });
+        } elseif ($diseaseType === 'dm') {
+            usort($statistics, function ($a, $b) {
+                return $b['dm']['achievement_percentage'] <=> $a['dm']['achievement_percentage'];
+            });
+        } else {
+            // Sort by combined achievement percentage (HT + DM) for ranking
+            usort($statistics, function ($a, $b) {
+                $aTotal = ($a['ht']['achievement_percentage'] ?? 0) + ($a['dm']['achievement_percentage'] ?? 0);
+                $bTotal = ($b['ht']['achievement_percentage'] ?? 0) + ($b['dm']['achievement_percentage'] ?? 0);
+                return $bTotal <=> $aTotal;
+            });
+        }
         
         // Add ranking
         foreach ($statistics as $index => $stat) {
             $statistics[$index]['ranking'] = $index + 1;
         }
         
-        return response()->json([
+        // Buat nama file
+        $filename = "statistik_";
+        if ($diseaseType !== 'all') {
+            $filename .= $diseaseType . "_";
+        }
+        $filename .= $year;
+        
+        // Proses export sesuai format
+        if ($format === 'pdf') {
+            return $this->exportToPdf($statistics, $year, $diseaseType, $filename);
+        } else {
+            return $this->exportToExcel($statistics, $year, $diseaseType, $filename);
+        }
+    }
+    
+    /**
+     * Endpoint khusus untuk export data HT
+     */
+    public function exportHtStatistics(Request $request)
+    {
+        $request->merge(['type' => 'ht']);
+        return $this->exportStatistics($request);
+    }
+    
+    /**
+     * Endpoint khusus untuk export data DM
+     */
+    public function exportDmStatistics(Request $request)
+    {
+        $request->merge(['type' => 'dm']);
+        return $this->exportStatistics($request);
+    }
+    
+    /**
+     * Export statistik ke format PDF menggunakan Dompdf
+     */
+    private function exportToPdf($statistics, $year, $diseaseType, $filename)
+    {
+        $title = "";
+        $subtitle = "Laporan Tahun " . $year;
+        
+        if ($diseaseType === 'ht') {
+            $title = "Statistik Hipertensi (HT)";
+        } elseif ($diseaseType === 'dm') {
+            $title = "Statistik Diabetes Mellitus (DM)";
+        } else {
+            $title = "Statistik Hipertensi (HT) dan Diabetes Mellitus (DM)";
+        }
+        
+        $data = [
+            'title' => $title,
+            'subtitle' => $subtitle,
             'year' => $year,
+            'type' => $diseaseType,
             'statistics' => $statistics,
-        ]);
-    }
-    
-    private function getHtStatistics($puskesmasId, $year)
-    {
-        $startDate = Carbon::createFromDate($year, 1, 1)->startOfYear();
-        $endDate = Carbon::createFromDate($year, 12, 31)->endOfYear();
-        
-        // Get all patients with HT in this puskesmas
-        $htPatients = Patient::where('puskesmas_id', $puskesmasId)
-            ->where('has_ht', true)
-            ->get();
-        
-        $htPatientIds = $htPatients->pluck('id')->toArray();
-        
-        // Get examinations for these patients in the specified year
-        $examinations = HtExamination::where('puskesmas_id', $puskesmasId)
-            ->whereIn('patient_id', $htPatientIds)
-            ->whereBetween('examination_date', [$startDate, $endDate])
-            ->get();
-        
-        // Group examinations by patient
-        $examinationsByPatient = $examinations->groupBy('patient_id');
-        
-        // Group examinations by month
-        $examinationsByMonth = $examinations->groupBy(function ($item) {
-            return Carbon::parse($item->examination_date)->month;
-        });
-        
-        // Prepare monthly data structure (1-12)
-        $monthlyData = [];
-        for ($i = 1; $i <= 12; $i++) {
-            $monthlyData[$i] = [
-                'male' => 0,
-                'female' => 0,
-                'total' => 0,
-            ];
-        }
-        
-        // Fill monthly data
-        foreach ($examinationsByMonth as $month => $monthExaminations) {
-            $patientIdsByMonth = $monthExaminations->pluck('patient_id')->unique();
-            
-            $maleCount = 0;
-            $femaleCount = 0;
-            
-            foreach ($patientIdsByMonth as $patientId) {
-                $patient = $htPatients->firstWhere('id', $patientId);
-                if ($patient->gender === 'male') {
-                    $maleCount++;
-                } elseif ($patient->gender === 'female') {
-                    $femaleCount++;
-                }
-            }
-            
-            $monthlyData[$month] = [
-                'male' => $maleCount,
-                'female' => $femaleCount,
-                'total' => $patientIdsByMonth->count(),
-            ];
-        }
-        
-        // Calculate standard patients (those who came regularly since their first visit)
-        $standardPatients = 0;
-        foreach ($examinationsByPatient as $patientId => $patientExaminations) {
-            $firstMonth = Carbon::parse($patientExaminations->min('examination_date'))->month;
-            $isStandard = true;
-            
-            // Check if the patient came every month since their first visit until December
-            for ($month = $firstMonth; $month <= 12; $month++) {
-                $hasVisitInMonth = $patientExaminations->contains(function ($examination) use ($month) {
-                    return Carbon::parse($examination->examination_date)->month === $month;
-                });
-                
-                if (!$hasVisitInMonth) {
-                    $isStandard = false;
-                    break;
-                }
-            }
-            
-            if ($isStandard) {
-                $standardPatients++;
-            }
-        }
-        
-        // Calculate controlled patients (at least 3 examinations with BP 90-139/60-89)
-        $controlledPatients = 0;
-        foreach ($examinationsByPatient as $patientId => $patientExaminations) {
-            $controlledExams = $patientExaminations->filter(function ($examination) {
-                return $examination->systolic >= 90 && $examination->systolic <= 139 &&
-                       $examination->diastolic >= 60 && $examination->diastolic <= 89;
-            });
-            
-            if ($controlledExams->count() >= 3) {
-                $controlledPatients++;
-            }
-        }
-        
-        return [
-            'total_patients' => $htPatients->count(),
-            'standard_patients' => $standardPatients,
-            'controlled_patients' => $controlledPatients,
-            'monthly_data' => $monthlyData,
+            'generated_at' => Carbon::now()->format('d F Y H:i'),
         ];
+        
+        // Generate PDF
+        $pdf = PDF::loadView('exports.statistics_pdf', $data);
+        $pdf->setPaper('a4', 'landscape');
+        
+        // Simpan PDF ke storage dan return download response
+        $pdfFilename = $filename . '.pdf';
+        Storage::put('public/exports/' . $pdfFilename, $pdf->output());
+        
+        return response()->download(storage_path('app/public/exports/' . $pdfFilename), $pdfFilename, [
+            'Content-Type' => 'application/pdf',
+        ])->deleteFileAfterSend(true);
     }
     
-    private function getDmStatistics($puskesmasId, $year)
+    /**
+     * Export statistik ke format Excel menggunakan PhpSpreadsheet
+     */
+    private function exportToExcel($statistics, $year, $diseaseType, $filename)
     {
-        $startDate = Carbon::createFromDate($year, 1, 1)->startOfYear();
-        $endDate = Carbon::createFromDate($year, 12, 31)->endOfYear();
+        // Buat spreadsheet baru
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
         
-        // Get all patients with DM in this puskesmas
-        $dmPatients = Patient::where('puskesmas_id', $puskesmasId)
-            ->where('has_dm', true)
-            ->get();
-        
-        $dmPatientIds = $dmPatients->pluck('id')->toArray();
-        
-        // Get examinations for these patients in the specified year
-        $examinations = DmExamination::where('puskesmas_id', $puskesmasId)
-            ->whereIn('patient_id', $dmPatientIds)
-            ->whereBetween('examination_date', [$startDate, $endDate])
-            ->get();
-        
-        // Group examinations by patient
-        $examinationsByPatient = $examinations->groupBy('patient_id');
-        
-        // Group examinations by month
-        $examinationsByMonth = $examinations->groupBy(function ($item) {
-            return Carbon::parse($item->examination_date)->month;
-        });
-        
-        // Prepare monthly data structure (1-12)
-        $monthlyData = [];
-        for ($i = 1; $i <= 12; $i++) {
-            $monthlyData[$i] = [
-                'male' => 0,
-                'female' => 0,
-                'total' => 0,
-            ];
+        // Set judul
+        if ($diseaseType === 'ht') {
+            $title = "Statistik Hipertensi (HT) - Tahun " . $year;
+        } elseif ($diseaseType === 'dm') {
+            $title = "Statistik Diabetes Mellitus (DM) - Tahun " . $year;
+        } else {
+            $title = "Statistik Hipertensi (HT) dan Diabetes Mellitus (DM) - Tahun " . $year;
         }
         
-        // Fill monthly data
-        foreach ($examinationsByMonth as $month => $monthExaminations) {
-            $patientIdsByMonth = $monthExaminations->pluck('patient_id')->unique();
-            
-            $maleCount = 0;
-            $femaleCount = 0;
-            
-            foreach ($patientIdsByMonth as $patientId) {
-                $patient = $dmPatients->firstWhere('id', $patientId);
-                if ($patient->gender === 'male') {
-                    $maleCount++;
-                } elseif ($patient->gender === 'female') {
-                    $femaleCount++;
-                }
-            }
-            
-            $monthlyData[$month] = [
-                'male' => $maleCount,
-                'female' => $femaleCount,
-                'total' => $patientIdsByMonth->count(),
-            ];
+        // Judul spreadsheet
+        $sheet->setCellValue('A1', $title);
+        $sheet->mergeCells('A1:K1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        
+        // Tanggal generate
+        $sheet->setCellValue('A2', 'Generated: ' . Carbon::now()->format('d F Y H:i'));
+        $sheet->mergeCells('A2:K2');
+        $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        
+        // Spasi
+        $sheet->setCellValue('A3', '');
+        
+        // Header kolom
+        $row = 4;
+        $sheet->setCellValue('A' . $row, 'No');
+        $sheet->setCellValue('B' . $row, 'Puskesmas');
+        
+        $col = 'C';
+        
+        if ($diseaseType === 'all' || $diseaseType === 'ht') {
+            $sheet->setCellValue($col++ . $row, 'Target HT');
+            $sheet->setCellValue($col++ . $row, 'Total Pasien HT');
+            $sheet->setCellValue($col++ . $row, 'Pencapaian HT (%)');
+            $sheet->setCellValue($col++ . $row, 'Pasien Standar HT');
+            $sheet->setCellValue($col++ . $row, 'Pasien Terkontrol HT');
         }
         
-        // Calculate standard patients (those who came regularly since their first visit)
-        $standardPatients = 0;
-        foreach ($examinationsByPatient as $patientId => $patientExaminations) {
-            $firstMonth = Carbon::parse($patientExaminations->min('examination_date'))->month;
-            $isStandard = true;
-            
-            // Check if the patient came every month since their first visit until December
-            for ($month = $firstMonth; $month <= 12; $month++) {
-                $hasVisitInMonth = $patientExaminations->contains(function ($examination) use ($month) {
-                    return Carbon::parse($examination->examination_date)->month === $month;
-                });
-                
-                if (!$hasVisitInMonth) {
-                    $isStandard = false;
-                    break;
-                }
-            }
-            
-            if ($isStandard) {
-                $standardPatients++;
-            }
+        if ($diseaseType === 'all' || $diseaseType === 'dm') {
+            $sheet->setCellValue($col++ . $row, 'Target DM');
+            $sheet->setCellValue($col++ . $row, 'Total Pasien DM');
+            $sheet->setCellValue($col++ . $row, 'Pencapaian DM (%)');
+            $sheet->setCellValue($col++ . $row, 'Pasien Standar DM');
+            $sheet->setCellValue($col++ . $row, 'Pasien Terkontrol DM');
         }
         
-        // Calculate controlled patients
-        $controlledPatients = 0;
-        foreach ($examinationsByPatient as $patientId => $patientExaminations) {
-            // Check HbA1c criteria (at least 1 HbA1c < 7%)
-            $hasControlledHbA1c = $patientExaminations->contains(function ($examination) {
-                return $examination->examination_type === 'hba1c' && $examination->result < 7;
-            });
+        // Style header
+        $lastCol = --$col;
+        $headerRange = 'A' . $row . ':' . $lastCol . $row;
+        $sheet->getStyle($headerRange)->getFont()->setBold(true);
+        $sheet->getStyle($headerRange)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('D3D3D3');
+        $sheet->getStyle($headerRange)->getBorders()
+            ->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle($headerRange)->getAlignment()
+            ->setHorizontal(Alignment::HORIZONTAL_CENTER)
+            ->setVertical(Alignment::VERTICAL_CENTER);
+        
+        // Data
+        foreach ($statistics as $stat) {
+            $row++;
+            $sheet->setCellValue('A' . $row, $stat['ranking']);
+            $sheet->setCellValue('B' . $row, $stat['puskesmas_name']);
             
-            // Check GDP criteria (at least 3 GDP < 126 mg/dl)
-            $controlledGdpCount = $patientExaminations->filter(function ($examination) {
-                return $examination->examination_type === 'gdp' && $examination->result < 126;
-            })->count();
+            $col = 'C';
             
-            // Check GD2JPP criteria (at least 3 GD2JPP < 200 mg/dl)
-            $controlledGd2jppCount = $patientExaminations->filter(function ($examination) {
-                return $examination->examination_type === 'gd2jpp' && $examination->result < 200;
-            })->count();
+            if ($diseaseType === 'all' || $diseaseType === 'ht') {
+                $sheet->setCellValue($col++ . $row, $stat['ht']['target']);
+                $sheet->setCellValue($col++ . $row, $stat['ht']['total_patients']);
+                $sheet->setCellValue($col++ . $row, $stat['ht']['achievement_percentage'] . '%');
+                $sheet->setCellValue($col++ . $row, $stat['ht']['standard_patients']);
+                $sheet->setCellValue($col++ . $row, $stat['ht']['controlled_patients']);
+            }
             
-            if ($hasControlledHbA1c || $controlledGdpCount >= 3 || $controlledGd2jppCount >= 3) {
-                $controlledPatients++;
+            if ($diseaseType === 'all' || $diseaseType === 'dm') {
+                $sheet->setCellValue($col++ . $row, $stat['dm']['target']);
+                $sheet->setCellValue($col++ . $row, $stat['dm']['total_patients']);
+                $sheet->setCellValue($col++ . $row, $stat['dm']['achievement_percentage'] . '%');
+                $sheet->setCellValue($col++ . $row, $stat['dm']['standard_patients']);
+                $sheet->setCellValue($col++ . $row, $stat['dm']['controlled_patients']);
             }
         }
         
-        return [
-            'total_patients' => $dmPatients->count(),
-            'standard_patients' => $standardPatients,
-            'controlled_patients' => $controlledPatients,
-            'monthly_data' => $monthlyData,
-        ];
+        // Styling untuk seluruh data
+        $dataRange = 'A5:' . $lastCol . $row;
+        $sheet->getStyle($dataRange)->getBorders()
+            ->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        
+        // Styling untuk kolom nomor dan puskesmas
+        $sheet->getStyle('A5:A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        
+        // Auto-size kolom
+        foreach (range('A', $lastCol) as $column) {
+            $sheet->getColumnDimension($column)->setAutoSize(true);
+        }
+        
+        // Jika laporan terpisah, buat sheet tambahan untuk data bulanan
+        if ($diseaseType !== 'all') {
+            $this->addMonthlyDataSheet($spreadsheet, $statistics, $diseaseType, $year);
+        }
+        
+        // Simpan file
+        $excelFilename = $filename . '.xlsx';
+        $writer = new Xlsx($spreadsheet);
+        $path = storage_path('app/public/exports/' . $excelFilename);
+        $writer->save($path);
+        
+        return response()->download($path, $excelFilename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
     }
     
-    public function exportStatistics(Request $request)
+    /**
+     * Tambahkan sheet data bulanan ke spreadsheet
+     */
+    private function addMonthlyDataSheet($spreadsheet, $statistics, $diseaseType, $year)
     {
-        // Implementation for export functionality
-        // This would connect to a PDF or Excel generating service
+        // Buat sheet baru
+        $sheet = $spreadsheet->createSheet();
+        $sheet->setTitle('Data Bulanan');
         
-        return response()->json([
-            'message' => 'Export functionality would be implemented here',
-        ]);
+        // Set judul
+        $title = $diseaseType === 'ht' 
+            ? "Data Bulanan Hipertensi (HT) - Tahun " . $year
+            : "Data Bulanan Diabetes Mellitus (DM) - Tahun " . $year;
+        
+        $sheet->setCellValue('A1', $title);
+        $sheet->mergeCells('A1:O1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        
+        // Tanggal generate
+        $sheet->setCellValue('A2', 'Generated: ' . Carbon::now()->format('d F Y H:i'));
+        $sheet->mergeCells('A2:O2');
+        $sheet->getStyle('A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        
+        // Spasi
+        $sheet->setCellValue('A3', '');
+        
+        // Header utama
+        $row = 4;
+        $sheet->setCellValue('A' . $row, 'No');
+        $sheet->setCellValue('B' . $row, 'Puskesmas');
+        $sheet->setCellValue('C' . $row, 'Jan');
+        $sheet->setCellValue('D' . $row, 'Feb');
+        $sheet->setCellValue('E' . $row, 'Mar');
+        $sheet->setCellValue('F' . $row, 'Apr');
+        $sheet->setCellValue('G' . $row, 'Mei');
+        $sheet->setCellValue('H' . $row, 'Jun');
+        $sheet->setCellValue('I' . $row, 'Jul');
+        $sheet->setCellValue('J' . $row, 'Ags');
+        $sheet->setCellValue('K' . $row, 'Sep');
+        $sheet->setCellValue('L' . $row, 'Okt');
+        $sheet->setCellValue('M' . $row, 'Nov');
+        $sheet->setCellValue('N' . $row, 'Des');
+        $sheet->setCellValue('O' . $row, 'Total');
+        
+        // Style header
+        $headerRange = 'A' . $row . ':O' . $row;
+        $sheet->getStyle($headerRange)->getFont()->setBold(true);
+        $sheet->getStyle($headerRange)->getFill()
+            ->setFillType(Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('D3D3D3');
+        $sheet->getStyle($headerRange)->getBorders()
+            ->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle($headerRange)->getAlignment()
+            ->setHorizontal(Alignment::HORIZONTAL_CENTER)
+            ->setVertical(Alignment::VERTICAL_CENTER);
+        
+        // Data
+        foreach ($statistics as $index => $stat) {
+            $row++;
+            $sheet->setCellValue('A' . $row, $stat['ranking']);
+            $sheet->setCellValue('B' . $row, $stat['puskesmas_name']);
+            
+            $total = 0;
+            $monthly = $diseaseType === 'ht' ? $stat['ht']['monthly_data'] : $stat['dm']['monthly_data'];
+            
+            for ($month = 1; $month <= 12; $month++) {
+                $col = chr(ord('C') + $month - 1); // C untuk Jan, D untuk Feb, dst.
+                $count = $monthly[$month]['total'] ?? 0;
+                $total += $count;
+                $sheet->setCellValue($col . $row, $count);
+            }
+            
+            $sheet->setCellValue('O' . $row, $total);
+        }
+        
+        // Styling untuk seluruh data
+        $dataRange = 'A4:O' . $row;
+        $sheet->getStyle($dataRange)->getBorders()
+            ->getAllBorders()
+            ->setBorderStyle(Border::BORDER_THIN);
+        
+        // Styling untuk kolom angka
+        $sheet->getStyle('A5:A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle('C5:O' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        
+        // Auto-size kolom
+        foreach (range('A', 'O') as $column) {
+            $sheet->getColumnDimension($column)->setAutoSize(true);
+        }
     }
 }
