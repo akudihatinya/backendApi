@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Patient;
 use App\Models\Puskesmas;
+use App\Models\HtExamination;
 use Illuminate\Database\Seeder;
 use Faker\Factory as Faker;
 use Illuminate\Support\Carbon;
@@ -21,20 +22,21 @@ class Puskesmas1HT2025Seeder extends Seeder
         $puskesmas = Puskesmas::where('name', 'Puskesmas 1')->first();
 
         if (!$puskesmas) {
-            $this->command->error('Puskesmas dengan nama "puskesmas1" tidak ditemukan!');
+            $this->command->error('Puskesmas dengan nama "Puskesmas 1" tidak ditemukan!');
             return;
         }
 
-        $this->command->info('Menambahkan pasien HT di puskesmas1 untuk tahun 2025...');
+        $this->command->info('Menambahkan pasien HT di Puskesmas 1 untuk tahun 2025...');
 
         $count = 0;
+        $year = 2025; // Tahun pemeriksaan yang spesifik
 
         for ($i = 0; $i < 20; $i++) {
             $gender = $faker->randomElement(['male', 'female']);
             $birthDate = $faker->dateTimeBetween('-70 years', '-20 years');
             $age = Carbon::parse($birthDate)->age;
 
-            Patient::create([
+            $patient = Patient::create([
                 'puskesmas_id' => $puskesmas->id,
                 'nik' => $faker->boolean(80) ? $this->generateNIK($faker) : null,
                 'bpjs_number' => $faker->boolean(70) ? $this->generateBPJS($faker) : null,
@@ -43,16 +45,33 @@ class Puskesmas1HT2025Seeder extends Seeder
                 'gender' => $gender,
                 'birth_date' => $birthDate,
                 'age' => $age,
-                'has_ht' => true,
-                'has_dm' => false,
-                'created_at' => $faker->dateTimeBetween('2025-01-01', '2025-12-31'),
+                'ht_years' => [$year], // Hanya tahun 2025
+                'dm_years' => [], // Tidak ada DM
+                'created_at' => $faker->dateTimeBetween("$year-01-01", "$year-12-31"),
                 'updated_at' => now(),
             ]);
+
+            // Buat 1-3 pemeriksaan HT untuk tahun 2025
+            $numExaminations = rand(1, 3);
+            for ($j = 0; $j < $numExaminations; $j++) {
+                $examinationDate = Carbon::createFromDate($year, rand(1, 12), rand(1, 28));
+                
+                HtExamination::create([
+                    'patient_id' => $patient->id,
+                    'puskesmas_id' => $puskesmas->id,
+                    'examination_date' => $examinationDate,
+                    'systolic' => rand(110, 180),
+                    'diastolic' => rand(70, 110),
+                    'year' => $examinationDate->year,
+                    'month' => $examinationDate->month,
+                    'is_archived' => false,
+                ]);
+            }
 
             $count++;
         }
 
-        $this->command->info("Berhasil menambahkan {$count} pasien HT untuk puskesmas1 di tahun 2025.");
+        $this->command->info("Berhasil menambahkan {$count} pasien HT untuk Puskesmas 1 di tahun 2025.");
     }
 
     private function generateNIK($faker): string

@@ -4,6 +4,8 @@ namespace Database\Seeders;
 
 use App\Models\Patient;
 use App\Models\Puskesmas;
+use App\Models\HtExamination;
+use App\Models\DmExamination;
 use Illuminate\Database\Seeder;
 use Faker\Factory as Faker;
 use Illuminate\Support\Carbon;
@@ -24,6 +26,9 @@ class PatientSeeder extends Seeder
             $this->command->error('Tidak ada puskesmas! Jalankan PuskesmasSeeder terlebih dahulu.');
             return;
         }
+        
+        // Tahun pemeriksaan
+        $years = [2024, 2025, 2026];
         
         // Buat 200 pasien yang didistribusikan ke semua puskesmas
         $this->command->info('Membuat data pasien...');
@@ -57,7 +62,31 @@ class PatientSeeder extends Seeder
                 $hasNik = $faker->boolean(80); // 80% kemungkinan memiliki NIK
                 $hasBpjs = $faker->boolean(70); // 70% kemungkinan memiliki BPJS
                 
-                Patient::create([
+                // Buat array tahun pemeriksaan untuk HT dan DM
+                $htYears = [];
+                $dmYears = [];
+                
+                if ($hasHt) {
+                    // Pilih beberapa tahun acak untuk pemeriksaan HT - FIX
+                    $numYears = rand(1, count($years));
+                    
+                    // Pilih tahun-tahun acak
+                    $selectedYears = $years;
+                    shuffle($selectedYears);
+                    $htYears = array_slice($selectedYears, 0, $numYears);
+                }
+                
+                if ($hasDm) {
+                    // Pilih beberapa tahun acak untuk pemeriksaan DM - FIX
+                    $numYears = rand(1, count($years));
+                    
+                    // Pilih tahun-tahun acak
+                    $selectedYears = $years;
+                    shuffle($selectedYears);
+                    $dmYears = array_slice($selectedYears, 0, $numYears);
+                }
+                
+                $patient = Patient::create([
                     'puskesmas_id' => $puskesmas->id,
                     'nik' => $hasNik ? $this->generateNIK($faker) : null,
                     'bpjs_number' => $hasBpjs ? $this->generateBPJS($faker) : null,
@@ -66,17 +95,69 @@ class PatientSeeder extends Seeder
                     'gender' => $gender,
                     'birth_date' => $faker->boolean(95) ? $birthDate : null, // 95% memiliki tanggal lahir
                     'age' => $faker->boolean(80) ? $age : null, // 80% memiliki umur
-                    'has_ht' => $hasHt,
-                    'has_dm' => $hasDm,
+                    'ht_years' => $htYears,
+                    'dm_years' => $dmYears,
                     'created_at' => $faker->dateTimeBetween('-2 years', 'now'),
                     'updated_at' => now(),
                 ]);
+                
+                // Buat pemeriksaan untuk setiap tahun HT
+                foreach ($htYears as $year) {
+                    // Buat 1-4 pemeriksaan per tahun
+                    $numExaminations = rand(1, 4);
+                    
+                    for ($j = 0; $j < $numExaminations; $j++) {
+                        $examinationDate = Carbon::createFromDate($year, rand(1, 12), rand(1, 28));
+                        
+                        HtExamination::create([
+                            'patient_id' => $patient->id,
+                            'puskesmas_id' => $puskesmas->id,
+                            'examination_date' => $examinationDate,
+                            'systolic' => rand(110, 180),
+                            'diastolic' => rand(70, 110),
+                            'year' => $examinationDate->year,
+                            'month' => $examinationDate->month,
+                            'is_archived' => false,
+                        ]);
+                    }
+                }
+                
+                // Buat pemeriksaan untuk setiap tahun DM
+                foreach ($dmYears as $year) {
+                    // Buat 1-4 pemeriksaan per tahun
+                    $numExaminations = rand(1, 4);
+                    
+                    for ($j = 0; $j < $numExaminations; $j++) {
+                        $examinationDate = Carbon::createFromDate($year, rand(1, 12), rand(1, 28));
+                        $examinationType = $faker->randomElement(['gdp', 'gd2jpp', 'gdsp', 'hba1c']);
+                        
+                        // Generate result berdasarkan tipe pemeriksaan
+                        $result = match($examinationType) {
+                            'hba1c' => $faker->randomFloat(1, 5.0, 10.0),
+                            'gdp' => $faker->numberBetween(70, 200),
+                            'gd2jpp' => $faker->numberBetween(90, 300),
+                            'gdsp' => $faker->numberBetween(90, 250),
+                            default => $faker->numberBetween(70, 200),
+                        };
+                        
+                        DmExamination::create([
+                            'patient_id' => $patient->id,
+                            'puskesmas_id' => $puskesmas->id,
+                            'examination_date' => $examinationDate,
+                            'examination_type' => $examinationType,
+                            'result' => $result,
+                            'year' => $examinationDate->year,
+                            'month' => $examinationDate->month,
+                            'is_archived' => false,
+                        ]);
+                    }
+                }
                 
                 $count++;
             }
         }
         
-        $this->command->info("Berhasil membuat {$count} data pasien.");
+        $this->command->info("Berhasil membuat {$count} data pasien dengan pemeriksaan HT/DM untuk tahun 2024-2026.");
     }
     
     /**

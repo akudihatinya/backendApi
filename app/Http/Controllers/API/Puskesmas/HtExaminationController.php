@@ -41,7 +41,7 @@ class HtExaminationController extends Controller
         }
         
         $examinations = $query->orderBy('examination_date', 'desc')
-            ->paginate($request->per_page ?? 15);
+            ->paginate($request->per_page ?? 10);
         
         return new HtExaminationCollection($examinations);
     }

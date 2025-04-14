@@ -83,6 +83,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/patients/{patient}', [PatientController::class, 'update']);
         Route::delete('/patients/{patient}', [PatientController::class, 'destroy']);
 
+        // New routes for managing examination years
+        Route::post('/patients/{patient}/examination-year', [PatientController::class, 'addExaminationYear']);
+        Route::put('/patients/{patient}/examination-year', [PatientController::class, 'removeExaminationYear']);
+
         // HT Examinations
         Route::get('/ht-examinations', [HtExaminationController::class, 'index']);
         Route::post('/ht-examinations', [HtExaminationController::class, 'store']);

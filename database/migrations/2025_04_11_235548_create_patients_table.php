@@ -18,8 +18,13 @@ return new class extends Migration
             $table->enum('gender', ['male', 'female'])->nullable();
             $table->date('birth_date')->nullable();
             $table->integer('age')->nullable();
-            $table->boolean('has_ht')->default(false);
-            $table->boolean('has_dm')->default(false);
+            // Remove default value as it will be calculated based on ht_years
+            $table->boolean('has_ht')->nullable();
+            // Remove default value as it will be calculated based on dm_years
+            $table->boolean('has_dm')->nullable();
+            // Add JSON arrays for exam years
+            $table->json('ht_years')->nullable();
+            $table->json('dm_years')->nullable();
             $table->timestamps();
         });
     }

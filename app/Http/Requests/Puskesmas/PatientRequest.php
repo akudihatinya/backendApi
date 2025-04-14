@@ -3,32 +3,30 @@
 namespace App\Http\Requests\Puskesmas;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class PatientRequest extends FormRequest
 {
-    public function authorize(): bool
+    public function authorize()
     {
-        return auth()->user()->isPuskesmas();
+        return true;
     }
 
-    public function rules(): array
+    public function rules()
     {
+        $patientId = $this->route('patient') ? $this->route('patient')->id : null;
+        
         return [
-            'nik' => [
-                'nullable',
-                'string',
-                'size:16',
-                Rule::unique('patients')->ignore($this->patient),
-            ],
+            'nik' => 'nullable|string|size:16|unique:patients,nik,' . $patientId,
             'bpjs_number' => 'nullable|string|max:20',
             'name' => 'required|string|max:255',
             'address' => 'nullable|string',
             'gender' => 'nullable|in:male,female',
             'birth_date' => 'nullable|date',
             'age' => 'nullable|integer|min:0|max:150',
-            'has_ht' => 'sometimes|boolean',
-            'has_dm' => 'sometimes|boolean',
+            'ht_years' => 'nullable|array',
+            'ht_years.*' => 'integer|digits:4',
+            'dm_years' => 'nullable|array',
+            'dm_years.*' => 'integer|digits:4',
         ];
     }
 }
