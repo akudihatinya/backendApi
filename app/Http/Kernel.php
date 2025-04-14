@@ -68,5 +68,6 @@ class Kernel extends HttpKernel
         'role' => \App\Http\Middleware\CheckUserRole::class,
         'admin' => \App\Http\Middleware\IsAdmin::class,
         'puskesmas' => \App\Http\Middleware\IsPuskesmas::class,
+        'admin.or.puskesmas' => \App\Http\Middleware\AdminOrPuskesmas::class,
     ];
 }
