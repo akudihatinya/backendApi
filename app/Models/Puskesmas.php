@@ -10,13 +10,12 @@ class Puskesmas extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
         'name',
     ];
 
-    public function user()
+    public function users()
     {
-        return $this->belongsTo(User::class);
+        return $this->hasMany(User::class);
     }
 
     public function patients()

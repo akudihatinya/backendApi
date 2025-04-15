@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -18,6 +18,7 @@ class User extends Authenticatable
         'name',
         'profile_picture',
         'role',
+        'puskesmas_id',
     ];
 
     protected $hidden = [
@@ -25,9 +26,9 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    public function puskesmas()
+    public function puskesmas(): BelongsTo
     {
-        return $this->hasOne(Puskesmas::class);
+        return $this->belongsTo(Puskesmas::class);
     }
 
     public function refreshTokens()
@@ -35,32 +36,23 @@ class User extends Authenticatable
         return $this->hasMany(UserRefreshToken::class);
     }
 
-    public function isAdmin()
+    public function isAdmin(): bool
     {
         return $this->role === 'admin';
     }
 
-    public function isPuskesmas()
+    public function isPuskesmas(): bool
     {
         return $this->role === 'puskesmas';
     }
-    
-    /**
-     * Boot the model.
-     */
+
     protected static function boot()
     {
         parent::boot();
 
-        // Menjalankan aksi sebelum user dihapus
         static::deleting(function ($user) {
-            // Revoke semua token
             $user->tokens()->delete();
-            
-            // Hapus refresh token
             $user->refreshTokens()->delete();
-            
-            // Log aktivitas penghapusan (opsional)
             \Illuminate\Support\Facades\Log::info("User {$user->name} dihapus oleh " . auth()->user()->name);
         });
     }

@@ -21,7 +21,7 @@ class AdminOrPuskesmas
             $user = Auth::user();
             
             // Berikan akses jika user adalah admin atau memiliki role puskesmas
-            if ($user->is_admin || (!is_null($user->puskesmas_id) && $user->puskesmas_id > 0)) {
+            if ($user->isAdmin() || $user->isPuskesmas()) {
                 return $next($request);
             }
         }

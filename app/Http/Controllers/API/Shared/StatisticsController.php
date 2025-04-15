@@ -22,12 +22,15 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use Illuminate\Support\Facades\Auth;
-
+use Illuminate\Support\Facades\Log;  // Add this import for Log facade
 class StatisticsController extends Controller
 {
-    /**
+        /**
      * Display a listing of statistics.
      * Now accessible to all authenticated users with data filtering
+     * 
+     * @param Request $request
+     * @return JsonResponse
      */
     public function index(Request $request)
     {
@@ -67,22 +70,54 @@ class StatisticsController extends Controller
             if ($userPuskesmas) {
                 $puskesmasQuery->where('id', $userPuskesmas);
             } else {
-                // Jika user tidak terkait dengan puskesmas, kembalikan data kosong
-                return response()->json([
-                    'data' => [],
-                    'meta' => [
-                        'current_page' => 1,
-                        'from' => 0,
-                        'last_page' => 1,
-                        'per_page' => $perPage,
-                        'to' => 0,
-                        'total' => 0,
-                    ],
-                ]);
+                // Log this issue to debug
+                Log::warning('Puskesmas user without puskesmas_id: ' . Auth::user()->id);
+                
+                // Try to find a puskesmas with matching name as fallback
+                $puskesmasWithSameName = Puskesmas::where('name', 'like', '%' . Auth::user()->name . '%')->first();
+                
+                if ($puskesmasWithSameName) {
+                    $puskesmasQuery->where('id', $puskesmasWithSameName->id);
+                    
+                    // Update the user with the correct puskesmas_id for future requests
+                    Auth::user()->update(['puskesmas_id' => $puskesmasWithSameName->id]);
+                    
+                    Log::info('Updated user ' . Auth::user()->id . ' with puskesmas_id ' . $puskesmasWithSameName->id);
+                } else {
+                    // Kembalikan data kosong dengan pesan
+                    return response()->json([
+                        'message' => 'User puskesmas tidak terkait dengan puskesmas manapun. Hubungi administrator.',
+                        'data' => [],
+                        'meta' => [
+                            'current_page' => 1,
+                            'from' => 0,
+                            'last_page' => 1,
+                            'per_page' => $perPage,
+                            'to' => 0,
+                            'total' => 0,
+                        ],
+                    ], 400);
+                }
             }
         }
 
         $puskesmasAll = $puskesmasQuery->get();
+        
+        // If no puskesmas found, return specific error
+        if ($puskesmasAll->isEmpty()) {
+            return response()->json([
+                'message' => 'Tidak ada data puskesmas yang ditemukan.',
+                'data' => [],
+                'meta' => [
+                    'current_page' => 1,
+                    'from' => 0,
+                    'last_page' => 1,
+                    'per_page' => $perPage,
+                    'to' => 0,
+                    'total' => 0,
+                ],
+            ]);
+        }
 
         $statistics = [];
 
@@ -1200,7 +1235,136 @@ class StatisticsController extends Controller
     }
 
     /**
+     * Mendapatkan nama bulan dalam bahasa Indonesia
+     */
+    protected function getMonthName($month)
+    {
+        $months = [
+            1 => 'Januari',
+            2 => 'Februari',
+            3 => 'Maret',
+            4 => 'April',
+            5 => 'Mei',
+            6 => 'Juni',
+            7 => 'Juli',
+            8 => 'Agustus',
+            9 => 'September',
+            10 => 'Oktober',
+            11 => 'November',
+            12 => 'Desember'
+        ];
+
+        return $months[$month] ?? '';
+    }
+/**
+     * Get dashboard statistics for the current year
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function dashboardStatistics(Request $request)
+    {
+        $year = $request->year ?? Carbon::now()->year;
+        $type = $request->type ?? 'all'; // Default 'all', bisa juga 'ht' atau 'dm'
+        $user = Auth::user();
+        
+        // Validasi nilai type
+        if (!in_array($type, ['all', 'ht', 'dm'])) {
+            return response()->json([
+                'message' => 'Parameter type tidak valid. Gunakan all, ht, atau dm.',
+            ], 400);
+        }
+        
+        // Check if user is puskesmas but has no puskesmas_id
+        if ($user->isPuskesmas() && !$user->puskesmas_id) {
+            // Try to find a matching puskesmas by name
+            $puskesmasWithSameName = Puskesmas::where('name', 'like', '%' . $user->name . '%')->first();
+            
+            if ($puskesmasWithSameName) {
+                // Update the user with the correct puskesmas_id
+                $user->update(['puskesmas_id' => $puskesmasWithSameName->id]);
+                Log::info('Auto-fixed: Updated user ' . $user->id . ' with puskesmas_id ' . $puskesmasWithSameName->id);
+            } else {
+                return response()->json([
+                    'message' => 'Akun puskesmas Anda tidak terkait dengan data puskesmas manapun. Hubungi administrator.',
+                ], 400);
+            }
+        }
+        
+        // Buat request untuk mengambil data statistik
+        $statsRequest = new Request([
+            'year' => $year,
+            'type' => $type,
+            'per_page' => $user->isAdmin() ? ($request->per_page ?? 10) : 1
+        ]);
+        
+        // Dapatkan data statistik
+        $response = $this->index($statsRequest)->getData();
+        
+        // Untuk admin, kembalikan seluruh daftar puskesmas
+        if ($user->isAdmin()) {
+            return response()->json([
+                'year' => $year,
+                'type' => $type,
+                'puskesmas_data' => $response->data ?? [],
+                'pagination' => $response->meta ?? null
+            ]);
+        }
+        
+        // Untuk puskesmas, kembalikan data puskesmas tersebut saja
+        $puskesmasData = $response->data[0] ?? null;
+        
+        if (!$puskesmasData) {
+            // Check if there's examination data for any year
+            $availableYears = $this->getAvailableYearsForPuskesmas($user->puskesmas_id);
+            
+            if (!empty($availableYears)) {
+                $yearsStr = implode(', ', $availableYears);
+                return response()->json([
+                    'message' => "Data statistik tidak ditemukan untuk tahun $year. Tersedia data untuk tahun: $yearsStr",
+                    'available_years' => $availableYears
+                ], 404);
+            }
+            
+            // Check if there are any patients for this puskesmas
+            $patientCount = Patient::where('puskesmas_id', $user->puskesmas_id)->count();
+            
+            if ($patientCount > 0) {
+                return response()->json([
+                    'message' => "Data statistik tidak ditemukan untuk tahun $year. Anda memiliki $patientCount pasien terdaftar tetapi belum ada pemeriksaan yang tercatat.",
+                ], 404);
+            }
+            
+            return response()->json([
+                'message' => "Data statistik tidak ditemukan untuk tahun $year. Pastikan Anda telah memasukkan data pasien dan pemeriksaan.",
+            ], 404);
+        }
+        
+        // Buat response yang berbeda sesuai parameter type
+        $result = [
+            'puskesmas' => $puskesmasData->puskesmas_name,
+            'year' => $year,
+            'type' => $type
+        ];
+        
+        if ($type === 'all' || $type === 'ht') {
+            $result['ht'] = $puskesmasData->ht ?? null;
+        }
+        
+        if ($type === 'all' || $type === 'dm') {
+            $result['dm'] = $puskesmasData->dm ?? null;
+        }
+        
+        return response()->json($result);
+    }
+
+    /**
      * Mendapatkan statistik HT berdasarkan tahun dan bulan (opsional)
+     * 
+     * @param int $puskesmasId
+     * @param int $year
+     * @param int|null $month
+     * @return array
      */
     protected function getHtStatistics($puskesmasId, $year, $month = null)
     {
@@ -1213,6 +1377,9 @@ class StatisticsController extends Controller
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
         }
 
+        // Log query parameters for debugging
+        Log::debug("getHtStatistics params: puskesmas=$puskesmasId, year=$year, month=$month, dateRange=$startDate to $endDate");
+
         // Get all patients with HT in this puskesmas
         $htPatients = Patient::where('puskesmas_id', $puskesmasId)
             ->where('has_ht', true)
@@ -1223,8 +1390,14 @@ class StatisticsController extends Controller
         // Get examinations for these patients in the specified period
         $examinations = HtExamination::where('puskesmas_id', $puskesmasId)
             ->whereIn('patient_id', $htPatientIds)
-            ->whereBetween('examination_date', [$startDate, $endDate])
+            ->where(function($query) use ($startDate, $endDate, $year) {
+                $query->whereBetween('examination_date', [$startDate, $endDate])
+                      ->orWhere('year', $year);
+            })
             ->get();
+
+        // Log query results for debugging
+        Log::debug("getHtStatistics results: patients=" . count($htPatientIds) . ", examinations=" . $examinations->count());
 
         // Group examinations by patient
         $examinationsByPatient = $examinations->groupBy('patient_id');
@@ -1253,10 +1426,12 @@ class StatisticsController extends Controller
 
             foreach ($patientIdsByMonth as $patientId) {
                 $patient = $htPatients->firstWhere('id', $patientId);
-                if ($patient->gender === 'male') {
-                    $maleCount++;
-                } elseif ($patient->gender === 'female') {
-                    $femaleCount++;
+                if ($patient) {
+                    if ($patient->gender === 'male') {
+                        $maleCount++;
+                    } elseif ($patient->gender === 'female') {
+                        $femaleCount++;
+                    }
                 }
             }
 
@@ -1277,13 +1452,11 @@ class StatisticsController extends Controller
 
             if ($latestExam) {
                 // A patient is considered "standard" if they have the required examinations
-                // This is just a placeholder logic, adjust as needed
-                if ($latestExam->has_lab_test) {
+                if (isset($latestExam->has_lab_test) && $latestExam->has_lab_test) {
                     $standardPatients++;
                 }
 
                 // A patient is considered "controlled" if their most recent examination shows controlled blood pressure
-                // This is just a placeholder logic, adjust as needed
                 if ($latestExam->systolic <= 140 && $latestExam->diastolic <= 90) {
                     $controlledPatients++;
                 }
@@ -1301,6 +1474,11 @@ class StatisticsController extends Controller
 
     /**
      * Mendapatkan statistik DM berdasarkan tahun dan bulan (opsional)
+     * 
+     * @param int $puskesmasId
+     * @param int $year
+     * @param int|null $month
+     * @return array
      */
     protected function getDmStatistics($puskesmasId, $year, $month = null)
     {
@@ -1313,6 +1491,9 @@ class StatisticsController extends Controller
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
         }
 
+        // Log query parameters for debugging
+        Log::debug("getDmStatistics params: puskesmas=$puskesmasId, year=$year, month=$month, dateRange=$startDate to $endDate");
+
         // Get all patients with DM in this puskesmas
         $dmPatients = Patient::where('puskesmas_id', $puskesmasId)
             ->where('has_dm', true)
@@ -1323,8 +1504,14 @@ class StatisticsController extends Controller
         // Get examinations for these patients in the specified period
         $examinations = DmExamination::where('puskesmas_id', $puskesmasId)
             ->whereIn('patient_id', $dmPatientIds)
-            ->whereBetween('examination_date', [$startDate, $endDate])
+            ->where(function($query) use ($startDate, $endDate, $year) {
+                $query->whereBetween('examination_date', [$startDate, $endDate])
+                      ->orWhere('year', $year);
+            })
             ->get();
+
+        // Log query results for debugging
+        Log::debug("getDmStatistics results: patients=" . count($dmPatientIds) . ", examinations=" . $examinations->count());
 
         // Group examinations by patient
         $examinationsByPatient = $examinations->groupBy('patient_id');
@@ -1353,10 +1540,12 @@ class StatisticsController extends Controller
 
             foreach ($patientIdsByMonth as $patientId) {
                 $patient = $dmPatients->firstWhere('id', $patientId);
-                if ($patient->gender === 'male') {
-                    $maleCount++;
-                } elseif ($patient->gender === 'female') {
-                    $femaleCount++;
+                if ($patient) {
+                    if ($patient->gender === 'male') {
+                        $maleCount++;
+                    } elseif ($patient->gender === 'female') {
+                        $femaleCount++;
+                    }
                 }
             }
 
@@ -1377,14 +1566,15 @@ class StatisticsController extends Controller
 
             if ($latestExam) {
                 // A patient is considered "standard" if they have the required examinations
-                // This is just a placeholder logic, adjust as needed
-                if ($latestExam->has_lab_test) {
+                if (isset($latestExam->has_lab_test) && $latestExam->has_lab_test) {
                     $standardPatients++;
                 }
 
                 // A patient is considered "controlled" if their most recent examination shows controlled glucose level
-                // This is just a placeholder logic, adjust as needed
-                if ($latestExam->blood_sugar <= 200) {
+                if (isset($latestExam->blood_sugar) && $latestExam->blood_sugar <= 200) {
+                    $controlledPatients++;
+                } else if (isset($latestExam->result) && $latestExam->result <= 200) {
+                    // Alternative check for different field name
                     $controlledPatients++;
                 }
             }
@@ -1398,66 +1588,27 @@ class StatisticsController extends Controller
             'monthly_data' => $monthlyData,
         ];
     }
-
-    /**
-     * Mendapatkan nama bulan dalam bahasa Indonesia
-     */
-    protected function getMonthName($month)
-    {
-        $months = [
-            1 => 'Januari',
-            2 => 'Februari',
-            3 => 'Maret',
-            4 => 'April',
-            5 => 'Mei',
-            6 => 'Juni',
-            7 => 'Juli',
-            8 => 'Agustus',
-            9 => 'September',
-            10 => 'Oktober',
-            11 => 'November',
-            12 => 'Desember'
-        ];
-
-        return $months[$month] ?? '';
-    }
-    /**
-     * Get dashboard statistics for the current year
-     */
-    public function dashboardStatistics(Request $request)
-    {
-        $year = $request->year ?? Carbon::now()->year;
-        $puskesmasId = Auth::user()->puskesmas_id;
-
-        if (!$puskesmasId) {
-            return response()->json([
-                'message' => 'Puskesmas tidak ditemukan.',
-            ], 404);
-        }
-
-        $puskesmas = Puskesmas::find($puskesmasId);
-
-        // Use the index method instead of direct access to getHtStatistics/getDmStatistics
-        $statsRequest = new Request([
-            'year' => $year,
-            'puskesmas_id' => $puskesmasId,
-            'type' => 'all'
-        ]);
-
-        $response = $this->index($statsRequest)->getData();
-        $puskesmasData = $response->data[0] ?? null;
-
-        if (!$puskesmasData) {
-            return response()->json([
-                'message' => 'Data statistik tidak ditemukan.',
-            ], 404);
-        }
-
-        return response()->json([
-            'puskesmas' => $puskesmas->name,
-            'year' => $year,
-            'ht' => $puskesmasData->ht,
-            'dm' => $puskesmasData->dm
-        ]);
-    }
+/**
+ * Helper method to get available years with data for a puskesmas
+ * 
+ * @param int $puskesmasId
+ * @return array
+ */
+private function getAvailableYearsForPuskesmas($puskesmasId)
+{
+    $htYears = HtExamination::where('puskesmas_id', $puskesmasId)
+        ->distinct('year')
+        ->pluck('year')
+        ->toArray();
+        
+    $dmYears = DmExamination::where('puskesmas_id', $puskesmasId)
+        ->distinct('year')
+        ->pluck('year')
+        ->toArray();
+        
+    $years = array_unique(array_merge($htYears, $dmYears));
+    sort($years);
+    
+    return $years;
+}
 }
