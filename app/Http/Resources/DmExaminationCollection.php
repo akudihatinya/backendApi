@@ -2,23 +2,28 @@
 
 namespace App\Http\Resources;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\ResourceCollection;
 
 class DmExaminationCollection extends ResourceCollection
 {
-    public $collects = DmExaminationResource::class;
-    
-    public function toArray(Request $request): array
+    public function toArray($request)
     {
         return [
             'data' => $this->collection,
+            'links' => [
+                'first' => $this->url(1),
+                'last' => $this->url($this->lastPage()),
+                'prev' => $this->previousPageUrl(),
+                'next' => $this->nextPageUrl(),
+            ],
             'meta' => [
-                'total' => $this->resource->total(),
-                'count' => $this->resource->count(),
-                'per_page' => $this->resource->perPage(),
-                'current_page' => $this->resource->currentPage(),
-                'last_page' => $this->resource->lastPage(),
+                'current_page' => $this->currentPage(),
+                'from' => $this->firstItem(),
+                'last_page' => $this->lastPage(),
+                'path' => $request->url(),
+                'per_page' => $this->perPage(),
+                'to' => $this->lastItem(),
+                'total' => $this->total(),
             ],
         ];
     }

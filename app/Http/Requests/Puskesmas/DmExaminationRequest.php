@@ -25,18 +25,17 @@ class DmExaminationRequest extends FormRequest
                         return;
                     }
                     
-                    if (!$patient->has_dm) {
-                        $fail('Pasien tidak memiliki riwayat Diabetes Mellitus.');
-                    }
-                    
                     if ($patient->puskesmas_id !== auth()->user()->puskesmas->id) {
                         $fail('Pasien bukan milik Puskesmas ini.');
                     }
                 },
             ],
             'examination_date' => 'required|date|before_or_equal:today',
-            'examination_type' => 'required|in:hba1c,gdp,gd2jpp,gdsp',
-            'result' => 'required|numeric|min:0|max:1000',
+            'examinations' => 'required|array',
+            'examinations.hba1c' => 'nullable|numeric|min:0|max:1000',
+            'examinations.gdp' => 'nullable|numeric|min:0|max:1000',
+            'examinations.gd2jpp' => 'nullable|numeric|min:0|max:1000',
+            'examinations.gdsp' => 'nullable|numeric|min:0|max:1000',
         ];
     }
 }
