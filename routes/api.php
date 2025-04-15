@@ -1,10 +1,10 @@
 <?php
 
+use App\Http\Controllers\API\AuthController;
 use App\Http\Controllers\API\Shared\StatisticsController;
+use App\Http\Controllers\API\Shared\DashboardController;
 use App\Http\Controllers\API\Shared\UserController;
 use App\Http\Controllers\API\Admin\YearlyTargetController;
-use App\Http\Controllers\API\AuthController;
-use App\Http\Controllers\API\Puskesmas\DashboardController;
 use App\Http\Controllers\API\Puskesmas\DmExaminationController;
 use App\Http\Controllers\API\Puskesmas\HtExaminationController;
 use App\Http\Controllers\API\Puskesmas\PatientController;
@@ -25,6 +25,10 @@ use App\Http\Middleware\AdminOrPuskesmas;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
+
+Route::post('/test-login', function () {
+    return response()->json(['message' => 'Test login route works']);
+});
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -48,8 +52,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/me', [UserController::class, 'updateMe']);
     });
 
+    // Dashboard API for Dinas (admin)
+    Route::middleware(IsAdmin::class)->prefix('admin')->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'dinasIndex']);
+    });
+
+    // Dashboard API for Puskesmas
+    Route::middleware(IsPuskesmas::class)->prefix('puskesmas')->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'puskesmasIndex']);
+    });
+
     // Statistics routes with combined middleware
     Route::middleware(AdminOrPuskesmas::class)->prefix('statistics')->group(function () {
+        // Statistics for Dashboard (used by dashboard controllers)
+        Route::get('/dashboard-statistics', [StatisticsController::class, 'dashboardStatistics']);
+
         // Laporan Bulanan dan Tahunan
         Route::get('/', [StatisticsController::class, 'index']);
         Route::get('/ht', [StatisticsController::class, 'htStatistics']);
