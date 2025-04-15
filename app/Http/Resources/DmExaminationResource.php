@@ -15,8 +15,13 @@ class DmExaminationResource extends JsonResource
             'patient_name' => $this->patient->name,
             'puskesmas_id' => $this->puskesmas_id,
             'examination_date' => $this->examination_date->format('Y-m-d'),
-            'examination_type' => $this->examination_type,
-            'result' => $this->result,
+
+            'gula_darah_puasa' => $this->whenLoaded('gdp', fn() => $this->gdp ?? null),
+            'gula_darah_dua_jam' => $this->whenLoaded('gd2jpp', fn() => $this->gd2jpp ?? null),
+            'gula_darah_sewaktu' => $this->whenLoaded('gdsp', fn() => $this->gdsp ?? null),
+            'hbA1c' => $this->whenLoaded('hbA1c', fn() => $this->hbA1c ?? null),
+
+
             'year' => $this->year,
             'month' => $this->month,
             'is_archived' => $this->is_archived,
