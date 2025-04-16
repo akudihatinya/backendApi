@@ -146,7 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Puskesmas routes
     Route::middleware(IsPuskesmas::class)->prefix('puskesmas')->group(function () {
         // Dashboard
-        Route::get('/dashboard', [DashboardController::class, 'index']);
+        Route::get('/dashboard', [DashboardController::class, 'puskesmasIndex']);
 
         // Patients
         Route::resource('patients', PatientController::class)->except(['create', 'edit']);
