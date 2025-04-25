@@ -38,9 +38,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Auth routes
     Route::controller(AuthController::class)->group(function () {
         Route::post('/logout', 'logout');
-        Route::post('/refresh', 'refresh');
         Route::get('/user', 'user');
         Route::post('/change-password', 'changePassword');
+        Route::post('/refresh', [AuthController::class, 'refresh'])
+            ->withoutMiddleware('auth:sanctum'); // Exclude auth:sanctum middleware
     });
 
     // Profile
