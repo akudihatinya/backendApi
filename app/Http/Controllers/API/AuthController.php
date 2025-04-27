@@ -13,12 +13,17 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cookie;
 
 class AuthController extends Controller
 {
-    public function login(LoginRequest $request)
+    public function login(Request $request)
     {
-        $credentials = $request->only('username', 'password');
+        // For API testing, allow simple validation
+        $credentials = $request->validate([
+            'username' => 'required|string',
+            'password' => 'required|string',
+        ]);
 
         if (!Auth::attempt($credentials)) {
             return response()->json(
@@ -35,8 +40,6 @@ class AuthController extends Controller
 
         // Generate access token (1 hour)
         $tokenResult = $user->createToken('auth_token', ['*']);
-        $tokenResult->accessToken->expires_at = Carbon::now()->addHour();
-        $tokenResult->accessToken->save();
         $accessToken = $tokenResult->plainTextToken;
 
         // Generate refresh token (30 days)
@@ -108,8 +111,6 @@ class AuthController extends Controller
 
         // Generate new access token
         $tokenResult = $user->createToken('auth_token', ['*']);
-        $tokenResult->accessToken->expires_at = Carbon::now()->addHours();
-        $tokenResult->accessToken->save();
         $accessToken = $tokenResult->plainTextToken;
 
         // Generate new refresh token

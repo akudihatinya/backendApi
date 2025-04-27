@@ -12,10 +12,11 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Run archiving process every January 1st at 00:01
-        $schedule->command('examinations:archive')
-            ->yearlyOn(1, 1, '00:01')
-            ->appendOutputTo(storage_path('logs/archiving.log'));
+        // Schedule archive command to run daily at midnight
+        $schedule->command('examinations:archive')->dailyAt('00:00');
+        
+        // Schedule cache rebuild if needed (optional)
+        // $schedule->command('statistics:rebuild-cache')->weekly();
     }
 
     /**
@@ -27,4 +28,14 @@ class Kernel extends ConsoleKernel
 
         require base_path('routes/console.php');
     }
+
+    /**
+     * The Artisan commands provided by your application.
+     *
+     * @var array
+     */
+    protected $commands = [
+        \App\Console\Commands\ArchiveExaminations::class,
+        \App\Console\Commands\RebuildStatisticsCache::class,
+    ];
 }

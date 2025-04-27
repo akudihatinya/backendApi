@@ -8,14 +8,28 @@ use App\Models\User;
 use App\Models\YearlyTarget;
 use App\Models\HtExamination;
 use App\Models\DmExamination;
+use App\Models\MonthlyStatisticsCache;
+use App\Services\StatisticsCacheService;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 
 class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        // Clear existing data - compatible with SQLite
+        if (config('database.default') === 'sqlite') {
+            DB::statement('PRAGMA foreign_keys = OFF;');
+            $this->truncateTables();
+            DB::statement('PRAGMA foreign_keys = ON;');
+        } else {
+            DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+            $this->truncateTables();
+            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+        }
+
         // 1. Buat admin
         $this->createAdmin();
         
@@ -37,6 +51,24 @@ class DatabaseSeeder extends Seeder
             // 4. Buat pasien dan pemeriksaan untuk setiap puskesmas
             $this->createPatientsForPuskesmas($puskesmas);
         }
+
+        // 5. Rebuild cache statistik setelah semua data selesai
+        $this->command->info('Building statistics cache...');
+        $cacheService = app(StatisticsCacheService::class);
+        $cacheService->rebuildAllCache();
+        $this->command->info('Statistics cache built successfully.');
+    }
+    
+    private function truncateTables(): void
+    {
+        // Order matters because of foreign key constraints
+        DB::table('monthly_statistics_cache')->truncate();
+        DB::table('dm_examinations')->truncate();
+        DB::table('ht_examinations')->truncate();
+        DB::table('yearly_targets')->truncate();
+        DB::table('patients')->truncate();
+        DB::table('puskesmas')->truncate();
+        DB::table('users')->truncate();
     }
     
     private function createAdmin(): void
@@ -179,23 +211,8 @@ class DatabaseSeeder extends Seeder
                 'dm_years' => [],
             ]);
             
-            // Buat pemeriksaan hanya untuk 60% pasien agar persentase sekitar 60%
-            // Sisanya tidak memiliki pemeriksaan sehingga tidak masuk hitungan
-            if (rand(1, 100) <= 60) {
-                // Determine how many months this patient will have examinations
-                $visitCount = rand(1, 12);
-                $months = array_rand(range(1, 12), $visitCount);
-                if (!is_array($months)) {
-                    $months = [$months + 1]; // Convert to array if only one month
-                } else {
-                    $months = array_map(function($m) { return $m + 1; }, $months);
-                }
-                
-                // Create examinations for each month
-                foreach ($months as $month) {
-                    $this->createHtExaminationForMonth($patient, $year, $month);
-                }
-            }
+            // Create examination pattern
+            $this->createExaminationPattern($patient, $year, 'ht');
         }
     }
     
@@ -224,82 +241,88 @@ class DatabaseSeeder extends Seeder
                 'dm_years' => [$year],
             ]);
             
-            // Buat pemeriksaan hanya untuk 60% pasien
-            if (rand(1, 100) <= 60) {
-                // Determine how many months this patient will have examinations
-                $visitCount = rand(1, 12);
-                $months = array_rand(range(1, 12), $visitCount);
-                if (!is_array($months)) {
-                    $months = [$months + 1]; // Convert to array if only one month
-                } else {
-                    $months = array_map(function($m) { return $m + 1; }, $months);
-                }
-                
-                // Create examinations for each month
-                foreach ($months as $month) {
-                    $this->createDmExaminationForMonth($patient, $year, $month);
+            // Create examination pattern
+            $this->createExaminationPattern($patient, $year, 'dm');
+        }
+    }
+    
+    /**
+     * Create examination pattern for standard and non-standard patients
+     */
+    private function createExaminationPattern(Patient $patient, int $year, string $diseaseType): void
+    {
+        // Decide if patient will be standard or non-standard
+        $isStandard = rand(1, 100) <= 70; // 70% chance to be standard
+        
+        // Determine first visit month
+        $firstMonth = rand(1, 8); // Start between January and August
+        
+        if ($isStandard) {
+            // Standard patient: visits every month from first visit to December
+            for ($month = $firstMonth; $month <= 12; $month++) {
+                $this->createExamination($patient, $year, $month, $diseaseType);
+            }
+        } else {
+            // Non-standard patient: skips some months
+            for ($month = $firstMonth; $month <= 12; $month++) {
+                // 70% chance to visit in each month
+                if (rand(1, 100) <= 70) {
+                    $this->createExamination($patient, $year, $month, $diseaseType);
                 }
             }
         }
     }
     
-    private function createHtExaminationForMonth(Patient $patient, int $year, int $month): void
+    /**
+     * Create examination for a specific month
+     */
+    private function createExamination(Patient $patient, int $year, int $month, string $diseaseType): void
     {
-        // Random day in the month, avoiding days that don't exist in some months
         $day = rand(1, min(28, Carbon::createFromDate($year, $month, 1)->daysInMonth));
         $date = Carbon::createFromDate($year, $month, $day);
         
-        // Create HT examination with normal values (since we're not focusing on controlled vs uncontrolled)
-        HtExamination::create([
-            'patient_id' => $patient->id,
-            'puskesmas_id' => $patient->puskesmas_id,
-            'examination_date' => $date,
-            'systolic' => rand(90, 160),
-            'diastolic' => rand(60, 100),
-            'year' => $year,
-            'month' => $month,
-            'is_archived' => false,
-        ]);
-    }
-    
-    private function createDmExaminationForMonth(Patient $patient, int $year, int $month): void
-    {
-        // Random day in the month, avoiding days that don't exist in some months
-        $day = rand(1, min(28, Carbon::createFromDate($year, $month, 1)->daysInMonth));
-        $date = Carbon::createFromDate($year, $month, $day);
-        
-        // Pilih tipe pemeriksaan acak
-        $examTypes = ['hba1c', 'gdp', 'gd2jpp', 'gdsp'];
-        $examType = $examTypes[array_rand($examTypes)];
-        
-        // Tentukan hasil berdasarkan tipe
-        $result = 0;
-        switch ($examType) {
-            case 'hba1c':
-                $result = rand(50, 100) / 10; // 5.0 - 10.0
-                break;
-            case 'gdp':
-                $result = rand(80, 200); // 80-200 mg/dl
-                break;
-            case 'gd2jpp':
-                $result = rand(100, 250); // 100-250 mg/dl
-                break;
-            case 'gdsp':
-                $result = rand(100, 200); // 100-200 mg/dl
-                break;
+        if ($diseaseType === 'ht') {
+            HtExamination::create([
+                'patient_id' => $patient->id,
+                'puskesmas_id' => $patient->puskesmas_id,
+                'examination_date' => $date,
+                'systolic' => rand(110, 170),
+                'diastolic' => rand(70, 100),
+                'year' => $year,
+                'month' => $month,
+                'is_archived' => false,
+            ]);
+        } else {
+            // Create multiple DM examination types for the same date
+            $examTypes = ['hba1c', 'gdp', 'gd2jpp', 'gdsp'];
+            
+            // Randomly select 1-4 examination types
+            $selectedTypes = array_rand(array_flip($examTypes), rand(1, 4));
+            if (!is_array($selectedTypes)) {
+                $selectedTypes = [$selectedTypes];
+            }
+            
+            foreach ($selectedTypes as $examType) {
+                $result = match($examType) {
+                    'hba1c' => rand(50, 100) / 10, // 5.0 - 10.0
+                    'gdp' => rand(80, 200),
+                    'gd2jpp' => rand(100, 250),
+                    'gdsp' => rand(100, 200),
+                    default => rand(80, 200),
+                };
+                
+                DmExamination::create([
+                    'patient_id' => $patient->id,
+                    'puskesmas_id' => $patient->puskesmas_id,
+                    'examination_date' => $date,
+                    'examination_type' => $examType,
+                    'result' => $result,
+                    'year' => $year,
+                    'month' => $month,
+                    'is_archived' => false,
+                ]);
+            }
         }
-        
-        // Create DM examination
-        DmExamination::create([
-            'patient_id' => $patient->id,
-            'puskesmas_id' => $patient->puskesmas_id,
-            'examination_date' => $date,
-            'examination_type' => $examType,
-            'result' => $result,
-            'year' => $year,
-            'month' => $month,
-            'is_archived' => false,
-        ]);
     }
     
     // Helper to generate unique NIK
