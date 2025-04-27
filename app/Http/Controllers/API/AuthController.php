@@ -51,16 +51,24 @@ class AuthController extends Controller
             'refresh_token' => $refreshToken,
             'expires_at' => Carbon::now()->addDays(30),
         ]);
+        $refreshTokenCookie = cookie(
+            'refresh_token',
+            $refreshToken,
+            60 * 24 * 30, // 30 hari dalam menit
+            null,
+            null,
+            true,  // Secure (hanya HTTPS)
+            true,  // HttpOnly (tidak bisa diakses JS)
+            false,
+            'lax'  // SameSite policy
+        );
 
-        // Log aktivitas login
-        Log::info("User {$user->name} berhasil login");
-
+        $minutes = 60; // Expire dalam 60 menit
         return response()->json([
             'user' => new UserResource($user),
-            'access_token' => $accessToken,
-            'refresh_token' => $refreshToken,
-            'token_type' => 'Bearer',
-        ]);
+            'message' => 'Login berhasil',
+        ], status: 200)->withCookie(cookie('access_token', $accessToken, $minutes, null, null, true, true, false, 'lax'))
+            ->withCookie($refreshTokenCookie);
     }
 
     public function logout(Request $request)
@@ -73,32 +81,34 @@ class AuthController extends Controller
         // Delete refresh tokens using relationship
         $user->refreshTokens()->delete();
 
-        // Log aktivitas logout
-        Log::info("User {$user->name} berhasil logout");
-
+        // Hapus cookie
         return response()->json([
             'message' => 'Berhasil logout',
-        ]);
+        ])->withCookie(cookie('access_token', '', 0))
+          ->withCookie(cookie('refresh_token', '', 0));
     }
 
     public function refresh(Request $request)
     {
-        $request->validate([
-            'refresh_token' => 'required|string',
-        ]);
+        $refreshToken = $request->cookie('refresh_token');
 
-        $refreshToken = UserRefreshToken::where('refresh_token', $request->refresh_token)
+        if (!$refreshToken) {
+            return response()->json([
+                'message' => 'Refresh token tidak ditemukan',
+            ], 401);
+        }
+
+        $refreshTokenRecord = UserRefreshToken::where('refresh_token', $refreshToken)
             ->where('expires_at', '>', Carbon::now())
             ->first();
 
-        if (!$refreshToken) {
+        if (!$refreshTokenRecord) {
             return response()->json([
                 'message' => 'Refresh token tidak valid atau sudah kadaluarsa',
             ], 401);
         }
 
-        // Ambil user melalui relasi yang sudah didefinisikan
-        $user = $refreshToken->user;
+        $user = $refreshTokenRecord->user;
 
         if (!$user) {
             return response()->json([
@@ -116,23 +126,34 @@ class AuthController extends Controller
         // Generate new refresh token
         $newRefreshToken = Str::random(60);
 
-        // Update refresh token
-        $refreshToken->update([
+        // Update refresh token di database
+        $refreshTokenRecord->update([
             'refresh_token' => $newRefreshToken,
             'expires_at' => Carbon::now()->addDays(30),
         ]);
 
-        // Log aktivitas refresh token
-        Log::info("User {$user->name} melakukan refresh token");
+        // Buat cookie refresh token baru
+        $refreshTokenCookie = cookie(
+            'refresh_token',
+            $newRefreshToken,
+            60 * 24 * 30, // 30 hari
+            null,
+            null,
+            true,
+            true,
+            false,
+            'lax'
+        );
+
+        $minutes = 60; // Expire access token 60 menit
 
         return response()->json([
             'user' => new UserResource($user),
-            'access_token' => $accessToken,
-            'refresh_token' => $newRefreshToken,
-            'token_type' => 'Bearer',
-        ]);
+            'message' => 'Token berhasil diperbarui',
+        ])->withCookie(cookie('access_token', $accessToken, $minutes, null, null, true, true, false, 'lax'))
+            ->withCookie($refreshTokenCookie);
     }
-
+    
     public function user(Request $request)
     {
         $user = $request->user();
@@ -152,30 +173,21 @@ class AuthController extends Controller
 
     public function changePassword(ChangePasswordRequest $request)
     {
-        $user = $request->user();
+        $user = Auth::user();
 
-        // Verifikasi password lama (jika ada dalam request)
-        if ($request->has('old_password') && !Hash::check($request->old_password, $user->password)) {
+        if (!Hash::check($request->get('old_password'), $user->password)) {
             return response()->json([
-                'message' => 'Password lama tidak sesuai',
-                'errors' => [
-                    'old_password' => ['Password lama yang Anda masukkan salah']
-                ]
-            ], 422);
+                'success' => false,
+                'message' => 'Password lama tidak cocok'
+            ], 400);
         }
 
-        $user->update([
-            'password' => Hash::make($request->password),
-        ]);
-
-        // Revoke all tokens except current
-        $user->tokens()->where('id', '<>', $request->user()->currentAccessToken()->id)->delete();
-
-        // Log aktivitas perubahan password
-        Log::info("User {$user->name} berhasil mengubah password");
+        $user->password = Hash::make($request->get('new_password'));
+        $user->save();
 
         return response()->json([
-            'message' => 'Password berhasil diubah',
+            'success' => true,
+            'message' => 'Password berhasil diubah'
         ]);
     }
 
