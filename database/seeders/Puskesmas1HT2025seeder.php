@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Patient;
 use App\Models\Puskesmas;
 use App\Models\HtExamination;
+use App\Services\StatisticsCacheService;
 use Illuminate\Database\Seeder;
 use Faker\Factory as Faker;
 use Illuminate\Support\Carbon;
@@ -31,7 +32,7 @@ class Puskesmas1HT2025Seeder extends Seeder
         $count = 0;
         $year = 2025; // Tahun pemeriksaan yang spesifik
 
-        for ($i = 0; $i < 20; $i++) {
+        for ($i = 0; $i < 30; $i++) {
             $gender = $faker->randomElement(['male', 'female']);
             $birthDate = $faker->dateTimeBetween('-70 years', '-20 years');
             $age = Carbon::parse($birthDate)->age;
@@ -40,6 +41,7 @@ class Puskesmas1HT2025Seeder extends Seeder
                 'puskesmas_id' => $puskesmas->id,
                 'nik' => $faker->boolean(80) ? $this->generateNIK($faker) : null,
                 'bpjs_number' => $faker->boolean(70) ? $this->generateBPJS($faker) : null,
+                'medical_record_number' => 'RM-' . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT),
                 'name' => $gender === 'male' ? $faker->firstNameMale . ' ' . $faker->lastName : $faker->firstNameFemale . ' ' . $faker->lastName,
                 'address' => $faker->address,
                 'gender' => $gender,
@@ -51,27 +53,59 @@ class Puskesmas1HT2025Seeder extends Seeder
                 'updated_at' => now(),
             ]);
 
-            // Buat 1-3 pemeriksaan HT untuk tahun 2025
-            $numExaminations = rand(1, 3);
-            for ($j = 0; $j < $numExaminations; $j++) {
-                $examinationDate = Carbon::createFromDate($year, rand(1, 12), rand(1, 28));
-                
-                HtExamination::create([
-                    'patient_id' => $patient->id,
-                    'puskesmas_id' => $puskesmas->id,
-                    'examination_date' => $examinationDate,
-                    'systolic' => rand(110, 180),
-                    'diastolic' => rand(70, 110),
-                    'year' => $examinationDate->year,
-                    'month' => $examinationDate->month,
-                    'is_archived' => false,
-                ]);
-            }
-
+            // Create examination pattern
+            $this->createExaminationPattern($patient, $year);
             $count++;
         }
 
         $this->command->info("Berhasil menambahkan {$count} pasien HT untuk Puskesmas 1 di tahun 2025.");
+        
+        // Rebuild cache setelah semua data selesai
+        $this->command->info('Building statistics cache...');
+        $cacheService = app(StatisticsCacheService::class);
+        $cacheService->rebuildAllCache();
+        $this->command->info('Statistics cache built successfully.');
+    }
+
+    private function createExaminationPattern(Patient $patient, int $year): void
+    {
+        // Decide if patient will be standard or non-standard
+        $isStandard = rand(1, 100) <= 70; // 70% chance to be standard
+        
+        // Determine first visit month
+        $firstMonth = rand(1, 8); // Start between January and August
+        
+        if ($isStandard) {
+            // Standard patient: visits every month from first visit to December
+            for ($month = $firstMonth; $month <= 12; $month++) {
+                $this->createHtExamination($patient, $year, $month);
+            }
+        } else {
+            // Non-standard patient: skips some months
+            for ($month = $firstMonth; $month <= 12; $month++) {
+                // 70% chance to visit in each month
+                if (rand(1, 100) <= 70) {
+                    $this->createHtExamination($patient, $year, $month);
+                }
+            }
+        }
+    }
+
+    private function createHtExamination(Patient $patient, int $year, int $month): void
+    {
+        $day = rand(1, min(28, Carbon::createFromDate($year, $month, 1)->daysInMonth));
+        $date = Carbon::createFromDate($year, $month, $day);
+        
+        HtExamination::create([
+            'patient_id' => $patient->id,
+            'puskesmas_id' => $patient->puskesmas_id,
+            'examination_date' => $date,
+            'systolic' => rand(110, 170),
+            'diastolic' => rand(70, 100),
+            'year' => $year,
+            'month' => $month,
+            'is_archived' => false,
+        ]);
     }
 
     private function generateNIK($faker): string

@@ -8,10 +8,12 @@ use App\Models\HtExamination;
 use App\Models\Patient;
 use App\Models\Puskesmas;
 use App\Models\YearlyTarget;
+use App\Models\MonthlyStatisticsCache;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
 {
@@ -31,88 +33,102 @@ class DashboardController extends Controller
         
         $puskesmas = Puskesmas::find($puskesmasId);
         
-        // Get statistics from StatisticsController
-        $statisticsController = app(StatisticsController::class);
-        $statisticsRequest = new Request(['year' => $year]);
-        $statistics = $statisticsController->dashboardStatistics($statisticsRequest)->getData();
+        // Get statistics from cache
+        $htData = $this->getHtStatisticsFromCache($puskesmasId, $year);
+        $dmData = $this->getDmStatisticsFromCache($puskesmasId, $year);
         
-        // Process monthly data for chart
+        // Get targets
+        $htTarget = YearlyTarget::where('puskesmas_id', $puskesmasId)
+            ->where('disease_type', 'ht')
+            ->where('year', $year)
+            ->first();
+            
+        $dmTarget = YearlyTarget::where('puskesmas_id', $puskesmasId)
+            ->where('disease_type', 'dm')
+            ->where('year', $year)
+            ->first();
+        
+        $htTargetCount = $htTarget ? $htTarget->target_count : 0;
+        $dmTargetCount = $dmTarget ? $dmTarget->target_count : 0;
+        
+        // Get total registered patients
+        $totalHtPatients = Patient::where('puskesmas_id', $puskesmasId)
+            ->where('has_ht', true)
+            ->count();
+            
+        $totalDmPatients = Patient::where('puskesmas_id', $puskesmasId)
+            ->where('has_dm', true)
+            ->count();
+        
+        // Calculate achievements
+        $htAchievementPercentage = $htTargetCount > 0
+            ? round(($htData['total_standard'] / $htTargetCount) * 100, 2)
+            : 0;
+            
+        $dmAchievementPercentage = $dmTargetCount > 0
+            ? round(($dmData['total_standard'] / $dmTargetCount) * 100, 2)
+            : 0;
+        
+        // Get current month statistics
+        $currentMonth = Carbon::now()->month;
+        $currentMonthName = $this->getMonthName($currentMonth);
+        
+        $currentHtStats = MonthlyStatisticsCache::where('puskesmas_id', $puskesmasId)
+            ->where('disease_type', 'ht')
+            ->where('year', $year)
+            ->where('month', $currentMonth)
+            ->first();
+            
+        $currentDmStats = MonthlyStatisticsCache::where('puskesmas_id', $puskesmasId)
+            ->where('disease_type', 'dm')
+            ->where('year', $year)
+            ->where('month', $currentMonth)
+            ->first();
+        
+        // Prepare monthly chart data
         $months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 
                   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
         
         $shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 
                        'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
         
-        // Format data for chart
-        $htData = [];
-        $dmData = [];
+        $htChartData = [];
+        $dmChartData = [];
         
-        for ($i = 1; $i <= 12; $i++) {
-            $htData[] = $statistics->ht->monthly_data->{$i}->total ?? 0;
-            $dmData[] = $statistics->dm->monthly_data->{$i}->total ?? 0;
+        foreach ($htData['monthly_data'] as $month => $data) {
+            $htChartData[] = $data['total'];
         }
         
-        // Recent patient counts
-        $currentMonth = Carbon::now()->month;
-        $currentMonthName = $months[$currentMonth - 1];
-        
-        // Add additional stats
-        $currentYear = Carbon::now()->year;
-        $totalHtPatients = Patient::where('puskesmas_id', $puskesmasId)
-                               ->where('has_ht', true)
-                               ->count();
-        
-        $totalDmPatients = Patient::where('puskesmas_id', $puskesmasId)
-                               ->where('has_dm', true)
-                               ->count();
-        
-        $recentHtExams = HtExamination::where('puskesmas_id', $puskesmasId)
-                              ->whereYear('examination_date', $currentYear)
-                              ->whereMonth('examination_date', $currentMonth)
-                              ->count();
-        
-        $recentDmExams = DmExamination::where('puskesmas_id', $puskesmasId)
-                              ->whereYear('examination_date', $currentYear)
-                              ->whereMonth('examination_date', $currentMonth)
-                              ->count();
-                              
-        // Calculate controlled percentages
-        $htControlledPercentage = $statistics->ht->total_patients > 0 
-            ? round(($statistics->ht->controlled_patients / $statistics->ht->total_patients) * 100, 2) 
-            : 0;
-            
-        $dmControlledPercentage = $statistics->dm->total_patients > 0 
-            ? round(($statistics->dm->controlled_patients / $statistics->dm->total_patients) * 100, 2) 
-            : 0;
+        foreach ($dmData['monthly_data'] as $month => $data) {
+            $dmChartData[] = $data['total'];
+        }
         
         return response()->json([
             'year' => $year,
             'puskesmas' => $puskesmas->name,
             'current_month' => $currentMonthName,
             'ht' => [
-                'target' => $statistics->ht->target,
-                'total_patients' => $statistics->ht->total_patients,
-                'achievement_percentage' => $statistics->ht->achievement_percentage,
-                'controlled_patients' => $statistics->ht->controlled_patients,
-                'controlled_percentage' => $htControlledPercentage,
+                'target' => $htTargetCount,
+                'total_patients' => $htData['total_patients'],
+                'achievement_percentage' => $htAchievementPercentage,
+                'standard_patients' => $htData['total_standard'],
                 'registered_patients' => $totalHtPatients,
-                'current_month_exams' => $recentHtExams
+                'current_month_exams' => $currentHtStats ? $currentHtStats->total_count : 0
             ],
             'dm' => [
-                'target' => $statistics->dm->target,
-                'total_patients' => $statistics->dm->total_patients,
-                'achievement_percentage' => $statistics->dm->achievement_percentage,
-                'controlled_patients' => $statistics->dm->controlled_patients,
-                'controlled_percentage' => $dmControlledPercentage,
+                'target' => $dmTargetCount,
+                'total_patients' => $dmData['total_patients'],
+                'achievement_percentage' => $dmAchievementPercentage,
+                'standard_patients' => $dmData['total_standard'],
                 'registered_patients' => $totalDmPatients,
-                'current_month_exams' => $recentDmExams
+                'current_month_exams' => $currentDmStats ? $currentDmStats->total_count : 0
             ],
             'chart_data' => [
                 'labels' => $shortMonths,
                 'datasets' => [
                     [
                         'label' => 'Hipertensi (HT)',
-                        'data' => $htData,
+                        'data' => $htChartData,
                         'borderColor' => '#3490dc',
                         'backgroundColor' => 'rgba(52, 144, 220, 0.1)',
                         'borderWidth' => 2,
@@ -120,7 +136,7 @@ class DashboardController extends Controller
                     ],
                     [
                         'label' => 'Diabetes Mellitus (DM)',
-                        'data' => $dmData,
+                        'data' => $dmChartData,
                         'borderColor' => '#f6993f',
                         'backgroundColor' => 'rgba(246, 153, 63, 0.1)',
                         'borderWidth' => 2,
@@ -134,32 +150,30 @@ class DashboardController extends Controller
                 'current_month' => $currentMonthName,
                 'date_generated' => Carbon::now()->format('d F Y H:i:s'),
                 'ht' => [
-                    'target' => $statistics->ht->target,
-                    'total_patients' => $statistics->ht->total_patients,
-                    'achievement_percentage' => $statistics->ht->achievement_percentage,
-                    'controlled_patients' => $statistics->ht->controlled_patients,
-                    'controlled_percentage' => $htControlledPercentage
+                    'target' => $htTargetCount,
+                    'total_patients' => $htData['total_patients'],
+                    'achievement_percentage' => $htAchievementPercentage,
+                    'standard_patients' => $htData['total_standard'],
                 ],
                 'dm' => [
-                    'target' => $statistics->dm->target,
-                    'total_patients' => $statistics->dm->total_patients,
-                    'achievement_percentage' => $statistics->dm->achievement_percentage,
-                    'controlled_patients' => $statistics->dm->controlled_patients,
-                    'controlled_percentage' => $dmControlledPercentage
+                    'target' => $dmTargetCount,
+                    'total_patients' => $dmData['total_patients'],
+                    'achievement_percentage' => $dmAchievementPercentage,
+                    'standard_patients' => $dmData['total_standard'],
                 ],
                 'monthly_data' => [
-                    'ht' => array_map(function($month) use ($statistics) {
+                    'ht' => array_map(function($month, $data) {
                         return [
                             'month' => $month,
-                            'total' => $statistics->ht->monthly_data->{$month}->total ?? 0
+                            'total' => $data['total']
                         ];
-                    }, range(1, 12)),
-                    'dm' => array_map(function($month) use ($statistics) {
+                    }, array_keys($htData['monthly_data']), $htData['monthly_data']),
+                    'dm' => array_map(function($month, $data) {
                         return [
                             'month' => $month,
-                            'total' => $statistics->dm->monthly_data->{$month}->total ?? 0
+                            'total' => $data['total']
                         ];
-                    }, range(1, 12))
+                    }, array_keys($dmData['monthly_data']), $dmData['monthly_data'])
                 ]
             ]
         ]);
@@ -185,16 +199,13 @@ class DashboardController extends Controller
         $allPuskesmas = Puskesmas::all();
         $puskesmasIds = $allPuskesmas->pluck('id')->toArray();
         
-        // Get statistics from StatisticsController for each puskesmas
-        $statisticsController = app(StatisticsController::class);
-        
         // Prepare data containers
         $totalHtTarget = 0;
         $totalDmTarget = 0;
         $totalHtPatients = 0;
         $totalDmPatients = 0;
-        $totalHtControlled = 0;
-        $totalDmControlled = 0;
+        $totalHtStandard = 0;
+        $totalDmStandard = 0;
         
         // Monthly data containers
         $htMonthlyData = array_fill(1, 12, 0);
@@ -205,18 +216,18 @@ class DashboardController extends Controller
         
         // Get yearly targets for all puskesmas
         $htTargets = YearlyTarget::where('year', $year)
-                        ->where('disease_type', 'ht')
-                        ->whereIn('puskesmas_id', $puskesmasIds)
-                        ->get()
-                        ->keyBy('puskesmas_id');
+            ->where('disease_type', 'ht')
+            ->whereIn('puskesmas_id', $puskesmasIds)
+            ->get()
+            ->keyBy('puskesmas_id');
                         
         $dmTargets = YearlyTarget::where('year', $year)
-                        ->where('disease_type', 'dm')
-                        ->whereIn('puskesmas_id', $puskesmasIds)
-                        ->get()
-                        ->keyBy('puskesmas_id');
+            ->where('disease_type', 'dm')
+            ->whereIn('puskesmas_id', $puskesmasIds)
+            ->get()
+            ->keyBy('puskesmas_id');
         
-        // For each puskesmas, gather statistics data
+        // For each puskesmas, gather statistics data from cache
         foreach ($allPuskesmas as $puskesmas) {
             $htTarget = $htTargets->get($puskesmas->id);
             $dmTarget = $dmTargets->get($puskesmas->id);
@@ -228,58 +239,51 @@ class DashboardController extends Controller
             $totalHtTarget += $htTargetCount;
             $totalDmTarget += $dmTargetCount;
             
-            // Get individual puskesmas statistics
-            $statsRequest = new Request([
-                'year' => $year,
-                'month' => $month,
-                'puskesmas_id' => $puskesmas->id
-            ]);
+            // Get statistics from cache
+            $htData = $this->getHtStatisticsFromCache($puskesmas->id, $year, $month);
+            $dmData = $this->getDmStatisticsFromCache($puskesmas->id, $year, $month);
             
-            // Using the index method with specific filters instead of direct method access
-            $response = $statisticsController->index($statsRequest)->getData();
-            $puskesmasData = $response->data[0] ?? null;
+            // Add to totals
+            $totalHtPatients += $htData['total_patients'];
+            $totalDmPatients += $dmData['total_patients'];
+            $totalHtStandard += $htData['total_standard'];
+            $totalDmStandard += $dmData['total_standard'];
             
-            if ($puskesmasData) {
-                $htData = $puskesmasData->ht;
-                $dmData = $puskesmasData->dm;
-                
-                // Add to totals
-                $totalHtPatients += $htData->total_patients;
-                $totalDmPatients += $dmData->total_patients;
-                $totalHtControlled += $htData->controlled_patients;
-                $totalDmControlled += $dmData->controlled_patients;
-                
-                // Aggregate monthly data
-                for ($i = 1; $i <= 12; $i++) {
-                    $htMonthlyData[$i] += $htData->monthly_data->{$i}->total ?? 0;
-                    $dmMonthlyData[$i] += $dmData->monthly_data->{$i}->total ?? 0;
-                }
-                
-                // Store puskesmas statistics for ranking
-                $puskesmasStats[] = [
-                    'id' => $puskesmas->id,
-                    'name' => $puskesmas->name,
-                    'ht' => [
-                        'target' => $htTargetCount,
-                        'total_patients' => $htData->total_patients,
-                        'achievement_percentage' => $htData->achievement_percentage,
-                        'controlled_patients' => $htData->controlled_patients,
-                        'controlled_percentage' => $htData->total_patients > 0 
-                            ? round(($htData->controlled_patients / $htData->total_patients) * 100, 2)
-                            : 0,
-                    ],
-                    'dm' => [
-                        'target' => $dmTargetCount,
-                        'total_patients' => $dmData->total_patients,
-                        'achievement_percentage' => $dmData->achievement_percentage,
-                        'controlled_patients' => $dmData->controlled_patients,
-                        'controlled_percentage' => $dmData->total_patients > 0 
-                            ? round(($dmData->controlled_patients / $dmData->total_patients) * 100, 2)
-                            : 0,
-                    ],
-                    'combined_achievement' => $htData->achievement_percentage + $dmData->achievement_percentage
-                ];
+            // Aggregate monthly data
+            foreach ($htData['monthly_data'] as $m => $data) {
+                $htMonthlyData[$m] += $data['total'];
             }
+            
+            foreach ($dmData['monthly_data'] as $m => $data) {
+                $dmMonthlyData[$m] += $data['total'];
+            }
+            
+            // Store puskesmas statistics for ranking
+            $htAchievement = $htTargetCount > 0 
+                ? round(($htData['total_standard'] / $htTargetCount) * 100, 2)
+                : 0;
+                
+            $dmAchievement = $dmTargetCount > 0 
+                ? round(($dmData['total_standard'] / $dmTargetCount) * 100, 2)
+                : 0;
+            
+            $puskesmasStats[] = [
+                'id' => $puskesmas->id,
+                'name' => $puskesmas->name,
+                'ht' => [
+                    'target' => $htTargetCount,
+                    'total_patients' => $htData['total_patients'],
+                    'achievement_percentage' => $htAchievement,
+                    'standard_patients' => $htData['total_standard'],
+                ],
+                'dm' => [
+                    'target' => $dmTargetCount,
+                    'total_patients' => $dmData['total_patients'],
+                    'achievement_percentage' => $dmAchievement,
+                    'standard_patients' => $dmData['total_standard'],
+                ],
+                'combined_achievement' => $htAchievement + $dmAchievement
+            ];
         }
         
         // Sort puskesmas by combined achievement percentage
@@ -292,21 +296,13 @@ class DashboardController extends Controller
             $puskesmasStats[$index]['ranking'] = $index + 1;
         }
         
-        // Calculate overall achievement and controlled percentages
+        // Calculate overall achievement percentages
         $htAchievementPercentage = $totalHtTarget > 0 
-            ? round(($totalHtPatients / $totalHtTarget) * 100, 2)
+            ? round(($totalHtStandard / $totalHtTarget) * 100, 2)
             : 0;
             
         $dmAchievementPercentage = $totalDmTarget > 0 
-            ? round(($totalDmPatients / $totalDmTarget) * 100, 2)
-            : 0;
-            
-        $htControlledPercentage = $totalHtPatients > 0 
-            ? round(($totalHtControlled / $totalHtPatients) * 100, 2)
-            : 0;
-            
-        $dmControlledPercentage = $totalDmPatients > 0 
-            ? round(($totalDmControlled / $totalDmPatients) * 100, 2)
+            ? round(($totalDmStandard / $totalDmTarget) * 100, 2)
             : 0;
         
         // Prepare monthly labels
@@ -351,15 +347,13 @@ class DashboardController extends Controller
                     'target' => $totalHtTarget,
                     'total_patients' => $totalHtPatients,
                     'achievement_percentage' => $htAchievementPercentage,
-                    'controlled_patients' => $totalHtControlled,
-                    'controlled_percentage' => $htControlledPercentage,
+                    'standard_patients' => $totalHtStandard,
                 ],
                 'dm' => [
                     'target' => $totalDmTarget,
                     'total_patients' => $totalDmPatients,
                     'achievement_percentage' => $dmAchievementPercentage,
-                    'controlled_patients' => $totalDmControlled,
-                    'controlled_percentage' => $dmControlledPercentage,
+                    'standard_patients' => $totalDmStandard,
                 ]
             ],
             'chart_data' => $chartData,
@@ -380,15 +374,13 @@ class DashboardController extends Controller
                         'target' => $totalHtTarget,
                         'total_patients' => $totalHtPatients,
                         'achievement_percentage' => $htAchievementPercentage,
-                        'controlled_patients' => $totalHtControlled,
-                        'controlled_percentage' => $htControlledPercentage,
+                        'standard_patients' => $totalHtStandard,
                     ],
                     'dm' => [
                         'target' => $totalDmTarget,
                         'total_patients' => $totalDmPatients,
                         'achievement_percentage' => $dmAchievementPercentage,
-                        'controlled_patients' => $totalDmControlled,
-                        'controlled_percentage' => $dmControlledPercentage,
+                        'standard_patients' => $totalDmStandard,
                     ]
                 ],
                 'puskesmas_data' => $puskesmasStats,
@@ -399,6 +391,130 @@ class DashboardController extends Controller
                 ]
             ]
         ]);
+    }
+    
+    /**
+     * Get HT statistics from cache
+     */
+    private function getHtStatisticsFromCache($puskesmasId, $year, $month = null)
+    {
+        if ($month !== null) {
+            // Get specific month data
+            $monthData = MonthlyStatisticsCache::where('puskesmas_id', $puskesmasId)
+                ->where('disease_type', 'ht')
+                ->where('year', $year)
+                ->where('month', $month)
+                ->first();
+                
+            return [
+                'total_patients' => $monthData ? $monthData->total_count : 0,
+                'total_standard' => $monthData ? $monthData->standard_count : 0,
+                'monthly_data' => [
+                    $month => [
+                        'male' => $monthData ? $monthData->male_count : 0,
+                        'female' => $monthData ? $monthData->female_count : 0,
+                        'total' => $monthData ? $monthData->total_count : 0,
+                        'standard' => $monthData ? $monthData->standard_count : 0,
+                        'non_standard' => $monthData ? $monthData->non_standard_count : 0,
+                    ]
+                ]
+            ];
+        }
+        
+        // Get full year data
+        $yearData = MonthlyStatisticsCache::where('puskesmas_id', $puskesmasId)
+            ->where('disease_type', 'ht')
+            ->where('year', $year)
+            ->get()
+            ->keyBy('month');
+        
+        $monthlyData = [];
+        $totalPatients = 0;
+        $totalStandard = 0;
+        
+        for ($m = 1; $m <= 12; $m++) {
+            $data = $yearData->get($m);
+            $monthlyData[$m] = [
+                'male' => $data ? $data->male_count : 0,
+                'female' => $data ? $data->female_count : 0,
+                'total' => $data ? $data->total_count : 0,
+                'standard' => $data ? $data->standard_count : 0,
+                'non_standard' => $data ? $data->non_standard_count : 0,
+            ];
+            
+            if ($data) {
+                $totalPatients += $data->total_count;
+                $totalStandard += $data->standard_count;
+            }
+        }
+        
+        return [
+            'total_patients' => $totalPatients,
+            'total_standard' => $totalStandard,
+            'monthly_data' => $monthlyData
+        ];
+    }
+    
+    /**
+     * Get DM statistics from cache
+     */
+    private function getDmStatisticsFromCache($puskesmasId, $year, $month = null)
+    {
+        if ($month !== null) {
+            // Get specific month data
+            $monthData = MonthlyStatisticsCache::where('puskesmas_id', $puskesmasId)
+                ->where('disease_type', 'dm')
+                ->where('year', $year)
+                ->where('month', $month)
+                ->first();
+                
+            return [
+                'total_patients' => $monthData ? $monthData->total_count : 0,
+                'total_standard' => $monthData ? $monthData->standard_count : 0,
+                'monthly_data' => [
+                    $month => [
+                        'male' => $monthData ? $monthData->male_count : 0,
+                        'female' => $monthData ? $monthData->female_count : 0,
+                        'total' => $monthData ? $monthData->total_count : 0,
+                        'standard' => $monthData ? $monthData->standard_count : 0,
+                        'non_standard' => $monthData ? $monthData->non_standard_count : 0,
+                    ]
+                ]
+            ];
+        }
+        
+        // Get full year data
+        $yearData = MonthlyStatisticsCache::where('puskesmas_id', $puskesmasId)
+            ->where('disease_type', 'dm')
+            ->where('year', $year)
+            ->get()
+            ->keyBy('month');
+        
+        $monthlyData = [];
+        $totalPatients = 0;
+        $totalStandard = 0;
+        
+        for ($m = 1; $m <= 12; $m++) {
+            $data = $yearData->get($m);
+            $monthlyData[$m] = [
+                'male' => $data ? $data->male_count : 0,
+                'female' => $data ? $data->female_count : 0,
+                'total' => $data ? $data->total_count : 0,
+                'standard' => $data ? $data->standard_count : 0,
+                'non_standard' => $data ? $data->non_standard_count : 0,
+            ];
+            
+            if ($data) {
+                $totalPatients += $data->total_count;
+                $totalStandard += $data->standard_count;
+            }
+        }
+        
+        return [
+            'total_patients' => $totalPatients,
+            'total_standard' => $totalStandard,
+            'monthly_data' => $monthlyData
+        ];
     }
     
     /**

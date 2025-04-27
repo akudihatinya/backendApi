@@ -26,12 +26,9 @@ use App\Http\Middleware\AdminOrPuskesmas;
 |
 */
 
-Route::post('/test-login', function () {
-    return response()->json(['message' => 'Test login route works']);
-});
-
-// Public routes
+// Public routes (no CSRF protection needed)
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/refresh', [AuthController::class, 'refresh']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -40,8 +37,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', 'logout');
         Route::get('/user', 'user');
         Route::post('/change-password', 'changePassword');
-        Route::post('/refresh', [AuthController::class, 'refresh'])
-            ->withoutMiddleware('auth:sanctum'); // Exclude auth:sanctum middleware
     });
 
     // Profile
@@ -83,15 +78,19 @@ Route::middleware('auth:sanctum')->group(function () {
             ->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
+        /** @var StatisticsController $controller */
         Route::get('/ht/{year}/{month}/export', function ($year, $month) {
-            return app(StatisticsController::class)->exportStatistics(
+            $controller = app(StatisticsController::class);
+            return $controller->exportStatistics(
                 request()->merge(['year' => $year, 'month' => $month, 'type' => 'ht'])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
+        /** @var StatisticsController $controller */
         Route::get('/dm/{year}/{month}/export', function ($year, $month) {
-            return app(StatisticsController::class)->exportStatistics(
+            $controller = app(StatisticsController::class);
+            return $controller->exportStatistics(
                 request()->merge(['year' => $year, 'month' => $month, 'type' => 'dm'])
             );
         })->where('year', '[0-9]{4}')
@@ -99,34 +98,46 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Laporan Pemantauan Pasien (dengan checklist kedatangan)
         Route::get('/monitoring', [StatisticsController::class, 'exportMonitoringReport']);
+        
+        /** @var StatisticsController $controller */
         Route::get('/monitoring/ht', function (Request $request) {
-            return app(StatisticsController::class)->exportMonitoringReport(
+            $controller = app(StatisticsController::class);
+            return $controller->exportMonitoringReport(
                 $request->merge(['type' => 'ht'])
             );
         });
+        
+        /** @var StatisticsController $controller */
         Route::get('/monitoring/dm', function (Request $request) {
-            return app(StatisticsController::class)->exportMonitoringReport(
+            $controller = app(StatisticsController::class);
+            return $controller->exportMonitoringReport(
                 $request->merge(['type' => 'dm'])
             );
         });
 
         // Monthly monitoring export shortcuts
+        /** @var StatisticsController $controller */
         Route::get('/monitoring/{year}/{month}', function ($year, $month, Request $request) {
-            return app(StatisticsController::class)->exportMonitoringReport(
+            $controller = app(StatisticsController::class);
+            return $controller->exportMonitoringReport(
                 $request->merge(['year' => $year, 'month' => $month])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
+        /** @var StatisticsController $controller */
         Route::get('/monitoring/ht/{year}/{month}', function ($year, $month, Request $request) {
-            return app(StatisticsController::class)->exportMonitoringReport(
+            $controller = app(StatisticsController::class);
+            return $controller->exportMonitoringReport(
                 $request->merge(['year' => $year, 'month' => $month, 'type' => 'ht'])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
+        /** @var StatisticsController $controller */
         Route::get('/monitoring/dm/{year}/{month}', function ($year, $month, Request $request) {
-            return app(StatisticsController::class)->exportMonitoringReport(
+            $controller = app(StatisticsController::class);
+            return $controller->exportMonitoringReport(
                 $request->merge(['year' => $year, 'month' => $month, 'type' => 'dm'])
             );
         })->where('year', '[0-9]{4}')

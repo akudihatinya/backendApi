@@ -13,12 +13,17 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cookie;
 
 class AuthController extends Controller
 {
-    public function login(LoginRequest $request)
+    public function login(Request $request)
     {
-        $credentials = $request->only('username', 'password');
+        // For API testing, allow simple validation
+        $credentials = $request->validate([
+            'username' => 'required|string',
+            'password' => 'required|string',
+        ]);
 
         if (!Auth::attempt($credentials)) {
             return response()->json(
@@ -33,8 +38,11 @@ class AuthController extends Controller
 
         $user = Auth::user();
 
-        // Generate access token (gunakan Sanctum default atau JWT)
-        $token = $user->createToken('auth_token')->plainTextToken;
+        // Generate access token (1 hour)
+        $tokenResult = $user->createToken('auth_token', ['*']);
+        $accessToken = $tokenResult->plainTextToken;
+
+        // Generate refresh token (30 days)
         $refreshToken = Str::random(60);
 
         // Save refresh token
@@ -59,8 +67,8 @@ class AuthController extends Controller
         return response()->json([
             'user' => new UserResource($user),
             'message' => 'Login berhasil',
-        ], status: 200)->withCookie(cookie('access_token', $token, $minutes, null, null, true, true, false, 'lax'))
-            ->withCookie($refreshTokenCookie);;
+        ], status: 200)->withCookie(cookie('access_token', $accessToken, $minutes, null, null, true, true, false, 'lax'))
+            ->withCookie($refreshTokenCookie);
     }
 
     public function logout(Request $request)
@@ -76,7 +84,8 @@ class AuthController extends Controller
         // Hapus cookie
         return response()->json([
             'message' => 'Berhasil logout',
-        ])->withCookie(cookie('access_token', '', 0));
+        ])->withCookie(cookie('access_token', '', 0))
+          ->withCookie(cookie('refresh_token', '', 0));
     }
 
     public function refresh(Request $request)
@@ -111,7 +120,8 @@ class AuthController extends Controller
         $user->tokens()->delete();
 
         // Generate new access token
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $tokenResult = $user->createToken('auth_token', ['*']);
+        $accessToken = $tokenResult->plainTextToken;
 
         // Generate new refresh token
         $newRefreshToken = Str::random(60);
@@ -140,9 +150,10 @@ class AuthController extends Controller
         return response()->json([
             'user' => new UserResource($user),
             'message' => 'Token berhasil diperbarui',
-        ])->withCookie(cookie('access_token', $token, $minutes, null, null, true, true, false, 'lax'))
+        ])->withCookie(cookie('access_token', $accessToken, $minutes, null, null, true, true, false, 'lax'))
             ->withCookie($refreshTokenCookie);
     }
+    
     public function user(Request $request)
     {
         $user = $request->user();

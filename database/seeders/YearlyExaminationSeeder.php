@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Patient;
 use App\Models\HtExamination;
 use App\Models\DmExamination;
+use App\Services\StatisticsCacheService;
 use Illuminate\Database\Seeder;
 use Faker\Factory as Faker;
 use Illuminate\Support\Carbon;
@@ -30,6 +31,12 @@ class YearlyExaminationSeeder extends Seeder
             // Buat data pemeriksaan DM
             $this->createDmExaminations($faker, $year);
         }
+        
+        // Rebuild cache setelah semua data selesai
+        $this->command->info('Building statistics cache...');
+        $cacheService = app(StatisticsCacheService::class);
+        $cacheService->rebuildAllCache();
+        $this->command->info('Statistics cache built successfully.');
     }
     
     /**
@@ -38,7 +45,7 @@ class YearlyExaminationSeeder extends Seeder
     private function createHtExaminations($faker, $year)
     {
         // Ambil semua pasien secara acak untuk ditambahkan pemeriksaan
-        $allPatients = Patient::inRandomOrder()->limit(100)->get();
+        $allPatients = Patient::inRandomOrder()->limit(200)->get();
         
         if ($allPatients->isEmpty()) {
             $this->command->info("Tidak ada pasien yang tersedia untuk pemeriksaan HT di tahun {$year}.");
@@ -50,7 +57,7 @@ class YearlyExaminationSeeder extends Seeder
             // Ambil array tahun dengan aman
             $htYears = $this->safeGetYears($patient->ht_years);
             return !in_array($year, $htYears);
-        })->take(50);
+        })->take(100);
         
         if ($patientsToAdd->isEmpty()) {
             $this->command->info("Tidak ada pasien yang perlu ditambahkan untuk pemeriksaan HT di tahun {$year}.");
@@ -66,24 +73,27 @@ class YearlyExaminationSeeder extends Seeder
                 $patient->addHtYear($year);
                 $patient->save();
                 
-                // Buat 1-4 pemeriksaan untuk tahun ini
-                $numExaminations = rand(1, 4);
+                // Decide if patient will be standard or non-standard
+                $isStandard = rand(1, 100) <= 70; // 70% chance to be standard
                 
-                for ($i = 0; $i < $numExaminations; $i++) {
-                    $examinationDate = Carbon::createFromDate($year, rand(1, 12), rand(1, 28));
-                    
-                    HtExamination::create([
-                        'patient_id' => $patient->id,
-                        'puskesmas_id' => $patient->puskesmas_id,
-                        'examination_date' => $examinationDate,
-                        'systolic' => rand(110, 180),
-                        'diastolic' => rand(70, 110),
-                        'year' => $examinationDate->year,
-                        'month' => $examinationDate->month,
-                        'is_archived' => false,
-                    ]);
-                    
-                    $count++;
+                // Determine first visit month
+                $firstMonth = rand(1, 8); // Start between January and August
+                
+                if ($isStandard) {
+                    // Standard patient: visits every month from first visit to December
+                    for ($month = $firstMonth; $month <= 12; $month++) {
+                        $this->createHtExamination($patient, $year, $month);
+                        $count++;
+                    }
+                } else {
+                    // Non-standard patient: skips some months
+                    for ($month = $firstMonth; $month <= 12; $month++) {
+                        // 70% chance to visit in each month
+                        if (rand(1, 100) <= 70) {
+                            $this->createHtExamination($patient, $year, $month);
+                            $count++;
+                        }
+                    }
                 }
             }
         }
@@ -97,7 +107,7 @@ class YearlyExaminationSeeder extends Seeder
     private function createDmExaminations($faker, $year)
     {
         // Ambil semua pasien secara acak untuk ditambahkan pemeriksaan
-        $allPatients = Patient::inRandomOrder()->limit(100)->get();
+        $allPatients = Patient::inRandomOrder()->limit(200)->get();
         
         if ($allPatients->isEmpty()) {
             $this->command->info("Tidak ada pasien yang tersedia untuk pemeriksaan DM di tahun {$year}.");
@@ -109,7 +119,7 @@ class YearlyExaminationSeeder extends Seeder
             // Ambil array tahun dengan aman
             $dmYears = $this->safeGetYears($patient->dm_years);
             return !in_array($year, $dmYears);
-        })->take(50);
+        })->take(100);
         
         if ($patientsToAdd->isEmpty()) {
             $this->command->info("Tidak ada pasien yang perlu ditambahkan untuk pemeriksaan DM di tahun {$year}.");
@@ -125,39 +135,91 @@ class YearlyExaminationSeeder extends Seeder
                 $patient->addDmYear($year);
                 $patient->save();
                 
-                // Buat 1-4 pemeriksaan untuk tahun ini
-                $numExaminations = rand(1, 4);
+                // Decide if patient will be standard or non-standard
+                $isStandard = rand(1, 100) <= 70; // 70% chance to be standard
                 
-                for ($i = 0; $i < $numExaminations; $i++) {
-                    $examinationDate = Carbon::createFromDate($year, rand(1, 12), rand(1, 28));
-                    $examinationType = $faker->randomElement(['gdp', 'gd2jpp', 'gdsp', 'hba1c']);
-                    
-                    // Generate result berdasarkan tipe pemeriksaan
-                    $result = match($examinationType) {
-                        'hba1c' => $faker->randomFloat(1, 5.0, 10.0),
-                        'gdp' => $faker->numberBetween(70, 200),
-                        'gd2jpp' => $faker->numberBetween(90, 300),
-                        'gdsp' => $faker->numberBetween(90, 250),
-                        default => $faker->numberBetween(70, 200),
-                    };
-                    
-                    DmExamination::create([
-                        'patient_id' => $patient->id,
-                        'puskesmas_id' => $patient->puskesmas_id,
-                        'examination_date' => $examinationDate,
-                        'examination_type' => $examinationType,
-                        'result' => $result,
-                        'year' => $examinationDate->year,
-                        'month' => $examinationDate->month,
-                        'is_archived' => false,
-                    ]);
-                    
-                    $count++;
+                // Determine first visit month
+                $firstMonth = rand(1, 8); // Start between January and August
+                
+                if ($isStandard) {
+                    // Standard patient: visits every month from first visit to December
+                    for ($month = $firstMonth; $month <= 12; $month++) {
+                        $this->createDmExamination($patient, $year, $month);
+                        $count++;
+                    }
+                } else {
+                    // Non-standard patient: skips some months
+                    for ($month = $firstMonth; $month <= 12; $month++) {
+                        // 70% chance to visit in each month
+                        if (rand(1, 100) <= 70) {
+                            $this->createDmExamination($patient, $year, $month);
+                            $count++;
+                        }
+                    }
                 }
             }
         }
         
         $this->command->info("Berhasil membuat {$count} data pemeriksaan DM untuk tahun {$year}.");
+    }
+    
+    /**
+     * Create HT examination for a specific month
+     */
+    private function createHtExamination(Patient $patient, int $year, int $month): void
+    {
+        $day = rand(1, min(28, Carbon::createFromDate($year, $month, 1)->daysInMonth));
+        $date = Carbon::createFromDate($year, $month, $day);
+        
+        HtExamination::create([
+            'patient_id' => $patient->id,
+            'puskesmas_id' => $patient->puskesmas_id,
+            'examination_date' => $date,
+            'systolic' => rand(110, 170),
+            'diastolic' => rand(70, 100),
+            'year' => $year,
+            'month' => $month,
+            'is_archived' => false,
+        ]);
+    }
+    
+    /**
+     * Create DM examination for a specific month
+     */
+    private function createDmExamination(Patient $patient, int $year, int $month): void
+    {
+        $day = rand(1, min(28, Carbon::createFromDate($year, $month, 1)->daysInMonth));
+        $date = Carbon::createFromDate($year, $month, $day);
+        
+        // Create multiple DM examination types for the same date
+        $examTypes = ['hba1c', 'gdp', 'gd2jpp', 'gdsp'];
+        
+        // Randomly select 1-4 examination types
+        $selectedTypes = array_rand(array_flip($examTypes), rand(1, 4));
+        if (!is_array($selectedTypes)) {
+            $selectedTypes = [$selectedTypes];
+        }
+        
+        foreach ($selectedTypes as $examType) {
+            $result = match($examType) {
+                'hba1c' => rand(50, 100) / 10, // 5.0 - 10.0
+                'gdp' => rand(80, 200),
+                'gd2jpp' => rand(100, 250),
+                'gdsp' => rand(100, 200),
+                default => rand(80, 200),
+            };
+            
+            DmExamination::create([
+                'patient_id' => $patient->id,
+                'puskesmas_id' => $patient->puskesmas_id,
+                'examination_date' => $date,
+                'examination_type' => $examType,
+                'result' => $result,
+                'year' => $year,
+                'month' => $month,
+                'is_archived' => false,
+            ]);
+        }
     }
     
     /**
