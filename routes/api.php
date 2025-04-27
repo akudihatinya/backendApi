@@ -22,16 +22,21 @@ use App\Http\Middleware\AdminOrPuskesmas;
 |
 | Here is where you can register API routes for your application. These
 | routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
+| be assigned to the "api" middleware group.
 |
 */
 
-// Public routes (no CSRF protection needed)
+// CSRF cookie for SPA authentication
+Route::get('/sanctum/csrf-cookie', function() {
+    return response()->json(['message' => 'CSRF cookie set']);
+})->middleware(['api']);
+
+// Public routes (authentication endpoints)
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/refresh', [AuthController::class, 'refresh']);
 
-// Protected routes
-Route::middleware('auth:sanctum')->group(function () {
+// Protected routes (require authentication)
+Route::middleware(['auth:sanctum'])->group(function () {
     // Auth routes
     Route::controller(AuthController::class)->group(function () {
         Route::post('/logout', 'logout');
@@ -39,10 +44,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/change-password', 'changePassword');
     });
 
-    // Profile
+    // Profile management
     Route::post('/profile', [ProfileController::class, 'update']);
 
-    // Akun sendiri
+    // User management for own account
     Route::prefix('users')->group(function () {
         Route::get('/me', [UserController::class, 'me']);
         Route::put('/me', [UserController::class, 'updateMe']);
@@ -60,15 +65,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Statistics routes with combined middleware
     Route::middleware(AdminOrPuskesmas::class)->prefix('statistics')->group(function () {
-        // Statistics for Dashboard (used by dashboard controllers)
+        // Statistics for Dashboard
         Route::get('/dashboard-statistics', [StatisticsController::class, 'dashboardStatistics']);
 
-        // Laporan Bulanan dan Tahunan
+        // Reports (Monthly and Yearly)
         Route::get('/', [StatisticsController::class, 'index']);
         Route::get('/ht', [StatisticsController::class, 'htStatistics']);
         Route::get('/dm', [StatisticsController::class, 'dmStatistics']);
 
-        // Export laporan bulanan dan tahunan
+        // Export endpoints
         Route::get('/export', [StatisticsController::class, 'exportStatistics']);
         Route::get('/export/ht', [StatisticsController::class, 'exportHtStatistics']);
         Route::get('/export/dm', [StatisticsController::class, 'exportDmStatistics']);
@@ -78,99 +83,83 @@ Route::middleware('auth:sanctum')->group(function () {
             ->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
-        /** @var StatisticsController $controller */
+        // HT specific monthly export
         Route::get('/ht/{year}/{month}/export', function ($year, $month) {
-            $controller = app(StatisticsController::class);
-            return $controller->exportStatistics(
+            return app(StatisticsController::class)->exportStatistics(
                 request()->merge(['year' => $year, 'month' => $month, 'type' => 'ht'])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
-        /** @var StatisticsController $controller */
+        // DM specific monthly export
         Route::get('/dm/{year}/{month}/export', function ($year, $month) {
-            $controller = app(StatisticsController::class);
-            return $controller->exportStatistics(
+            return app(StatisticsController::class)->exportStatistics(
                 request()->merge(['year' => $year, 'month' => $month, 'type' => 'dm'])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
-        // Laporan Pemantauan Pasien (dengan checklist kedatangan)
+        // Monitoring Reports
         Route::get('/monitoring', [StatisticsController::class, 'exportMonitoringReport']);
         
-        /** @var StatisticsController $controller */
         Route::get('/monitoring/ht', function (Request $request) {
-            $controller = app(StatisticsController::class);
-            return $controller->exportMonitoringReport(
+            return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['type' => 'ht'])
             );
         });
         
-        /** @var StatisticsController $controller */
         Route::get('/monitoring/dm', function (Request $request) {
-            $controller = app(StatisticsController::class);
-            return $controller->exportMonitoringReport(
+            return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['type' => 'dm'])
             );
         });
 
         // Monthly monitoring export shortcuts
-        /** @var StatisticsController $controller */
         Route::get('/monitoring/{year}/{month}', function ($year, $month, Request $request) {
-            $controller = app(StatisticsController::class);
-            return $controller->exportMonitoringReport(
+            return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['year' => $year, 'month' => $month])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
-        /** @var StatisticsController $controller */
         Route::get('/monitoring/ht/{year}/{month}', function ($year, $month, Request $request) {
-            $controller = app(StatisticsController::class);
-            return $controller->exportMonitoringReport(
+            return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['year' => $year, 'month' => $month, 'type' => 'ht'])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
 
-        /** @var StatisticsController $controller */
         Route::get('/monitoring/dm/{year}/{month}', function ($year, $month, Request $request) {
-            $controller = app(StatisticsController::class);
-            return $controller->exportMonitoringReport(
+            return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['year' => $year, 'month' => $month, 'type' => 'dm'])
             );
         })->where('year', '[0-9]{4}')
             ->where('month', '[0-9]{1,2}');
     });
 
-    // Admin routes
+    // Admin-only routes
     Route::middleware(IsAdmin::class)->prefix('admin')->group(function () {
         // User management
-        Route::resource('users', UserController::class)->except(['create', 'edit']);
+        Route::apiResource('users', UserController::class);
         Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
-        Route::delete('/users/{user}', [UserController::class, 'destroy']);
 
         // Yearly targets
-        Route::resource('yearly-targets', YearlyTargetController::class)->except(['create', 'edit']);
+        Route::apiResource('yearly-targets', YearlyTargetController::class);
     });
 
-    // Puskesmas routes
+    // Puskesmas-only routes
     Route::middleware(IsPuskesmas::class)->prefix('puskesmas')->group(function () {
-        // Dashboard
-        Route::get('/dashboard', [DashboardController::class, 'puskesmasIndex']);
-
-        // Patients
-        Route::resource('patients', PatientController::class)->except(['create', 'edit']);
+        // Patients management
+        Route::apiResource('patients', PatientController::class);
 
         // Examination years
         Route::post('/patients/{patient}/examination-year', [PatientController::class, 'addExaminationYear']);
         Route::put('/patients/{patient}/examination-year', [PatientController::class, 'removeExaminationYear']);
 
         // HT Examinations
-        Route::resource('ht-examinations', HtExaminationController::class)->except(['create', 'edit']);
+        Route::apiResource('ht-examinations', HtExaminationController::class);
 
         // DM Examinations
-        Route::resource('dm-examinations', DmExaminationController::class)->except(['create', 'edit']);
+        Route::apiResource('dm-examinations', DmExaminationController::class);
     });
 });

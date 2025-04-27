@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Illuminate\Auth\Middleware\Authenticate as Middleware;
 use Illuminate\Http\Request;
+use Closure;
 
 class Authenticate extends Middleware
 {
@@ -15,16 +16,19 @@ class Authenticate extends Middleware
         return $request->expectsJson() ? null : route('login');
     }
 
-    public function authenticate($request, array $guards)
+    /**
+     * Handle an incoming request.
+     */
+    public function handle($request, Closure $next, ...$guards)
     {
+        // Extract token from cookie
         $token = $request->cookie('access_token');
-
-        if (empty($token)) {
-            $this->unauthenticated($request, $guards);
+        
+        if ($token) {
+            // Set Authorization header for Sanctum
+            $request->headers->set('Authorization', 'Bearer ' . $token);
         }
 
-        $request->headers->set('Authorization', 'Bearer ' . $token);
-
-        parent::authenticate($request, $guards);
+        return parent::handle($request, $next, ...$guards);
     }
 }

@@ -10,12 +10,24 @@ use App\Models\HtExamination;
 use App\Models\Patient;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
 
 class HtExaminationController extends Controller
 {
-    public function index(Request $request)
+    /**
+     * Display a listing of HT examinations
+     */
+    public function index(Request $request): HtExaminationCollection|JsonResponse
     {
-        $puskesmasId = $request->user()->puskesmas->id;
+        // Get the authenticated user's puskesmas id
+        $puskesmasId = Auth::user()->puskesmas_id;
+        
+        if (!$puskesmasId) {
+            return response()->json([
+                'message' => 'User tidak terkait dengan puskesmas manapun.',
+            ], 403);
+        }
         
         $query = HtExamination::where('puskesmas_id', $puskesmasId)
             ->with('patient');
@@ -46,10 +58,19 @@ class HtExaminationController extends Controller
         return new HtExaminationCollection($examinations);
     }
     
-    public function store(HtExaminationRequest $request)
+    /**
+     * Store a newly created HT examination
+     */
+    public function store(HtExaminationRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $data['puskesmas_id'] = $request->user()->puskesmas->id;
+        $data['puskesmas_id'] = Auth::user()->puskesmas_id;
+        
+        if (!$data['puskesmas_id']) {
+            return response()->json([
+                'message' => 'User tidak terkait dengan puskesmas manapun.',
+            ], 403);
+        }
         
         $date = Carbon::parse($data['examination_date']);
         $data['year'] = $date->year;
@@ -58,10 +79,18 @@ class HtExaminationController extends Controller
         // Set archived status based on year
         $data['is_archived'] = $date->year < Carbon::now()->year;
         
-        // Make sure the patient has HT
+        // Make sure the patient belongs to this puskesmas
         $patient = Patient::findOrFail($data['patient_id']);
-        if (!$patient->has_ht) {
-            $patient->update(['has_ht' => true]);
+        if ($patient->puskesmas_id !== $data['puskesmas_id']) {
+            return response()->json([
+                'message' => 'Pasien bukan milik puskesmas Anda',
+            ], 403);
+        }
+        
+        // Add the year to patient's ht_years if not exists
+        if (!$patient->hasHtInYear($data['year'])) {
+            $patient->addHtYear($data['year']);
+            $patient->save();
         }
         
         $examination = HtExamination::create($data);
@@ -72,11 +101,14 @@ class HtExaminationController extends Controller
         ], 201);
     }
     
-    public function show(Request $request, HtExamination $htExamination)
+    /**
+     * Display the specified HT examination
+     */
+    public function show(Request $request, HtExamination $htExamination): JsonResponse
     {
-        if ($htExamination->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($htExamination->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pemeriksaan bukan milik puskesmas Anda',
             ], 403);
         }
         
@@ -85,15 +117,28 @@ class HtExaminationController extends Controller
         ]);
     }
     
-    public function update(HtExaminationRequest $request, HtExamination $htExamination)
+    /**
+     * Update the specified HT examination
+     */
+    public function update(HtExaminationRequest $request, HtExamination $htExamination): JsonResponse
     {
-        if ($htExamination->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($htExamination->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pemeriksaan bukan milik puskesmas Anda',
             ], 403);
         }
         
         $data = $request->validated();
+        
+        // Check if patient belongs to this puskesmas
+        if (isset($data['patient_id'])) {
+            $patient = Patient::findOrFail($data['patient_id']);
+            if ($patient->puskesmas_id !== Auth::user()->puskesmas_id) {
+                return response()->json([
+                    'message' => 'Pasien bukan milik puskesmas Anda',
+                ], 403);
+            }
+        }
         
         $date = Carbon::parse($data['examination_date']);
         $data['year'] = $date->year;
@@ -110,11 +155,14 @@ class HtExaminationController extends Controller
         ]);
     }
     
-    public function destroy(Request $request, HtExamination $htExamination)
+    /**
+     * Remove the specified HT examination
+     */
+    public function destroy(Request $request, HtExamination $htExamination): JsonResponse
     {
-        if ($htExamination->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($htExamination->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pemeriksaan bukan milik puskesmas Anda',
             ], 403);
         }
         

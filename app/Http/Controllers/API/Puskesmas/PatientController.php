@@ -8,13 +8,25 @@ use App\Http\Resources\PatientCollection;
 use App\Http\Resources\PatientResource;
 use App\Models\Patient;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class PatientController extends Controller
 {
-    public function index(Request $request)
+    /**
+     * Display a listing of patients
+     */
+    public function index(Request $request): PatientCollection|JsonResponse
     {
-        $puskesmasId = $request->user()->puskesmas->id;
+        // Get the authenticated user's puskesmas id
+        $puskesmasId = Auth::user()->puskesmas_id;
+        
+        if (!$puskesmasId) {
+            return response()->json([
+                'message' => 'User tidak terkait dengan puskesmas manapun.',
+            ], 403);
+        }
         
         $query = Patient::where('puskesmas_id', $puskesmasId);
         
@@ -99,36 +111,18 @@ class PatientController extends Controller
     }
     
     /**
-     * Safely get years array from various possible formats
+     * Store a newly created patient
      */
-    private function safeGetYears($years)
-    {
-        // If it's null, return empty array
-        if (is_null($years)) {
-            return [];
-        }
-        
-        // If it's already an array, return it
-        if (is_array($years)) {
-            return $years;
-        }
-        
-        // If it's a string, try to decode it
-        if (is_string($years)) {
-            $decoded = json_decode($years, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                return $decoded;
-            }
-        }
-        
-        // Default fallback
-        return [];
-    }
-    
-    public function store(PatientRequest $request)
+    public function store(PatientRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $data['puskesmas_id'] = $request->user()->puskesmas->id;
+        $data['puskesmas_id'] = Auth::user()->puskesmas_id;
+        
+        if (!$data['puskesmas_id']) {
+            return response()->json([
+                'message' => 'User tidak terkait dengan puskesmas manapun.',
+            ], 403);
+        }
         
         // Initialize empty arrays for years if not provided
         $data['ht_years'] = $data['ht_years'] ?? [];
@@ -142,11 +136,14 @@ class PatientController extends Controller
         ], 201);
     }
     
-    public function show(Request $request, Patient $patient)
+    /**
+     * Display the specified patient
+     */
+    public function show(Request $request, Patient $patient): JsonResponse
     {
-        if ($patient->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($patient->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pasien bukan milik puskesmas Anda',
             ], 403);
         }
         
@@ -155,16 +152,18 @@ class PatientController extends Controller
         ]);
     }
     
-    public function update(PatientRequest $request, Patient $patient)
+    /**
+     * Update the specified patient
+     */
+    public function update(PatientRequest $request, Patient $patient): JsonResponse
     {
-        if ($patient->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($patient->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pasien bukan milik puskesmas Anda',
             ], 403);
         }
         
         $data = $request->validated();
-        
         $patient->update($data);
         
         return response()->json([
@@ -173,11 +172,14 @@ class PatientController extends Controller
         ]);
     }
     
-    public function addExaminationYear(Request $request, Patient $patient)
+    /**
+     * Add examination year to patient
+     */
+    public function addExaminationYear(Request $request, Patient $patient): JsonResponse
     {
-        if ($patient->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($patient->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pasien bukan milik puskesmas Anda',
             ], 403);
         }
         
@@ -203,11 +205,14 @@ class PatientController extends Controller
         ]);
     }
     
-    public function removeExaminationYear(Request $request, Patient $patient)
+    /**
+     * Remove examination year from patient
+     */
+    public function removeExaminationYear(Request $request, Patient $patient): JsonResponse
     {
-        if ($patient->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($patient->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pasien bukan milik puskesmas Anda',
             ], 403);
         }
         
@@ -233,11 +238,14 @@ class PatientController extends Controller
         ]);
     }
     
-    public function destroy(Request $request, Patient $patient)
+    /**
+     * Remove the specified patient
+     */
+    public function destroy(Request $request, Patient $patient): JsonResponse
     {
-        if ($patient->puskesmas_id !== $request->user()->puskesmas->id) {
+        if ($patient->puskesmas_id !== Auth::user()->puskesmas_id) {
             return response()->json([
-                'message' => 'Unauthorized',
+                'message' => 'Unauthorized - Pasien bukan milik puskesmas Anda',
             ], 403);
         }
         
@@ -246,5 +254,34 @@ class PatientController extends Controller
         return response()->json([
             'message' => 'Pasien berhasil dihapus',
         ]);
+    }
+    
+    /**
+     * Safely get years array from various possible formats
+     * @param mixed $years
+     * @return array
+     */
+    private function safeGetYears($years): array
+    {
+        // If it's null, return empty array
+        if (is_null($years)) {
+            return [];
+        }
+        
+        // If it's already an array, return it
+        if (is_array($years)) {
+            return $years;
+        }
+        
+        // If it's a string, try to decode it
+        if (is_string($years)) {
+            $decoded = json_decode($years, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $decoded;
+            }
+        }
+        
+        // Default fallback
+        return [];
     }
 }

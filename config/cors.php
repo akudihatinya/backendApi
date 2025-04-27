@@ -1,8 +1,5 @@
 <?php
 
-// config/cors.php
-// Konfigurasi CORS untuk mengizinkan frontend mengakses API
-
 return [
     /*
     |--------------------------------------------------------------------------
@@ -17,19 +14,22 @@ return [
     |
     */
 
-    'paths' => ['api/*', 'sanctum/csrf-cookie', '*'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie'],
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:5173')],
+    'allowed_origins' => [
+        env('FRONTEND_URL', 'http://localhost:5173'),
+        'http://localhost:3000', // Add additional origins if needed
+    ],
 
     'allowed_origins_patterns' => [],
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    'exposed_headers' => ['set-cookie'], // Important for cookies
 
     'max_age' => 0,
 
-    'supports_credentials' => true,
+    'supports_credentials' => true, // Crucial for cookie authentication
 ];

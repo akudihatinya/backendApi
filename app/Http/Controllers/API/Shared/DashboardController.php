@@ -11,6 +11,7 @@ use App\Models\YearlyTarget;
 use App\Models\MonthlyStatisticsCache;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -19,12 +20,14 @@ class DashboardController extends Controller
 {
     /**
      * Display dashboard statistics for individual puskesmas
+     * Accessible by both admin and puskesmas users
      */
-    public function puskesmasIndex(Request $request)
+    public function puskesmasIndex(Request $request): JsonResponse
     {
         $year = $request->year ?? Carbon::now()->year;
         $puskesmasId = Auth::user()->puskesmas_id;
         
+        // Validate puskesmas ID exists
         if (!$puskesmasId) {
             return response()->json([
                 'message' => 'Puskesmas tidak ditemukan.',
@@ -37,7 +40,7 @@ class DashboardController extends Controller
         $htData = $this->getHtStatisticsFromCache($puskesmasId, $year);
         $dmData = $this->getDmStatisticsFromCache($puskesmasId, $year);
         
-        // Get targets
+        // Get yearly targets
         $htTarget = YearlyTarget::where('puskesmas_id', $puskesmasId)
             ->where('disease_type', 'ht')
             ->where('year', $year)
@@ -53,11 +56,11 @@ class DashboardController extends Controller
         
         // Get total registered patients
         $totalHtPatients = Patient::where('puskesmas_id', $puskesmasId)
-            ->where('has_ht', true)
+            ->whereJsonContains('ht_years', $year)
             ->count();
             
         $totalDmPatients = Patient::where('puskesmas_id', $puskesmasId)
-            ->where('has_dm', true)
+            ->whereJsonContains('dm_years', $year)
             ->count();
         
         // Calculate achievements
@@ -181,9 +184,9 @@ class DashboardController extends Controller
     
     /**
      * Display aggregated dashboard statistics for Dinas (admin)
-     * Shows summary of all puskesmas
+     * Accessible only by admin users
      */
-    public function dinasIndex(Request $request)
+    public function dinasIndex(Request $request): JsonResponse
     {
         // Verify user is admin
         if (!Auth::user()->is_admin) {
@@ -199,7 +202,7 @@ class DashboardController extends Controller
         $allPuskesmas = Puskesmas::all();
         $puskesmasIds = $allPuskesmas->pluck('id')->toArray();
         
-        // Prepare data containers
+        // Initialize data containers
         $totalHtTarget = 0;
         $totalDmTarget = 0;
         $totalHtPatients = 0;
@@ -395,8 +398,12 @@ class DashboardController extends Controller
     
     /**
      * Get HT statistics from cache
+     * @param int $puskesmasId
+     * @param int $year
+     * @param int|null $month
+     * @return array
      */
-    private function getHtStatisticsFromCache($puskesmasId, $year, $month = null)
+    private function getHtStatisticsFromCache($puskesmasId, $year, $month = null): array
     {
         if ($month !== null) {
             // Get specific month data
@@ -457,8 +464,12 @@ class DashboardController extends Controller
     
     /**
      * Get DM statistics from cache
+     * @param int $puskesmasId
+     * @param int $year
+     * @param int|null $month
+     * @return array
      */
-    private function getDmStatisticsFromCache($puskesmasId, $year, $month = null)
+    private function getDmStatisticsFromCache($puskesmasId, $year, $month = null): array
     {
         if ($month !== null) {
             // Get specific month data
@@ -518,9 +529,11 @@ class DashboardController extends Controller
     }
     
     /**
-     * Helper function to get month name
+     * Helper function to get month name in Indonesian
+     * @param int $month
+     * @return string
      */
-    protected function getMonthName($month)
+    protected function getMonthName($month): string
     {
         $months = [
             1 => 'Januari',

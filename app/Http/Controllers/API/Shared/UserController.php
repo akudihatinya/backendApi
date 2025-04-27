@@ -15,39 +15,41 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Cookie;
 
 class UserController extends Controller
 {
+    /**
+     * Display a listing of users
+     */
     public function index(Request $request): JsonResponse
     {
         $query = User::query();
 
-        // Filter berdasarkan parameter is_admin
+        // Filter based on is_admin parameter
         if ($request->has('is_admin')) {
             $isAdmin = filter_var($request->is_admin, FILTER_VALIDATE_BOOLEAN);
 
             if ($isAdmin) {
-                // Jika is_admin=1, tampilkan hanya admin
                 $query->where('role', 'admin');
             } else {
-                // Jika is_admin=0, tampilkan selain admin
                 $query->where('role', '!=', 'admin');
             }
         }
 
-        // Tentukan jumlah item per halaman (default: 10)
+        // Set pagination per page
         $perPage = 10;
         if ($request->has('per_page')) {
-            // Hanya izinkan nilai 10, 25, atau 100
             $requestedPerPage = (int)$request->per_page;
             if (in_array($requestedPerPage, [10, 25, 100])) {
                 $perPage = $requestedPerPage;
             }
         }
 
-        // Load relationship puskesmas untuk user yang memiliki role puskesmas
+        // Load puskesmas relationship
         $users = $query->with(['puskesmas' => function ($query) {
-            // Relationship akan dimuat hanya jika user memiliki relasi puskesmas
+            // Load puskesmas relationship
         }])->paginate($perPage);
 
         return response()->json([
@@ -66,7 +68,9 @@ class UserController extends Controller
         ]);
     }
 
-
+    /**
+     * Display the specified user
+     */
     public function show(User $user): JsonResponse
     {
         return response()->json([
@@ -74,6 +78,9 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Store a newly created user
+     */
     public function store(StoreUserRequest $request): JsonResponse
     {
         $data = $request->validated();
@@ -106,23 +113,11 @@ class UserController extends Controller
 
             $user->load('puskesmas');
 
-            // Generate token
-            $accessToken = $user->createToken('auth_token')->plainTextToken;
-            $refreshToken = Str::random(60);
-
-            UserRefreshToken::create([
-                'user_id' => $user->id,
-                'refresh_token' => $refreshToken,
-                'expires_at' => now()->addDays(30),
-            ]);
-
             return response()->json([
                 'message' => 'User puskesmas berhasil ditambahkan',
                 'user' => new UserResource($user),
-                'access_token' => $accessToken,
-                'refresh_token' => $refreshToken,
-                'token_type' => 'Bearer',
             ], 201);
+
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -138,6 +133,9 @@ class UserController extends Controller
         }
     }
 
+    /**
+     * Update the specified user
+     */
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
         $data = $request->validated();
@@ -164,6 +162,9 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Reset password for specified user
+     */
     public function resetPassword(Request $request, User $user): JsonResponse
     {
         $request->validate([
@@ -174,13 +175,20 @@ class UserController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
+        // Revoke all active tokens for this user
         $user->tokens()->delete();
+        
+        // Delete all refresh tokens
+        $user->refreshTokens()->delete();
 
         return response()->json([
             'message' => 'Password berhasil direset',
         ]);
     }
 
+    /**
+     * Remove the specified user
+     */
     public function destroy(User $user): JsonResponse
     {
         if ($user->role === 'admin') {
@@ -195,6 +203,17 @@ class UserController extends Controller
             Storage::delete('public/' . $user->profile_picture);
         }
 
+        // Delete all refresh tokens
+        if (method_exists($user, 'refreshTokens')) {
+            $user->refreshTokens()->delete();
+        } else {
+            UserRefreshToken::where('user_id', $user->id)->delete();
+        }
+
+        // Delete all access tokens
+        $user->tokens()->delete();
+        
+        // Delete user
         $user->delete();
 
         return response()->json([
@@ -202,6 +221,9 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Get authenticated user information
+     */
     public function me(Request $request): JsonResponse
     {
         return response()->json([
@@ -209,6 +231,9 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Update authenticated user profile
+     */
     public function updateMe(UpdateUserRequest $request): JsonResponse
     {
         $user = $request->user();
