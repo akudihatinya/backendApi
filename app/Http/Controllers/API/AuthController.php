@@ -39,7 +39,7 @@ class AuthController extends Controller
         $user = Auth::user();
 
         // Generate access token (1 hour)
-        $tokenResult = $user->createToken('acces_token', ['*']);
+        $tokenResult = $user->createToken('access_token', ['*']);
         $accessToken = $tokenResult->plainTextToken;
 
         // Generate refresh token (30 days)
@@ -120,7 +120,7 @@ class AuthController extends Controller
         $user->tokens()->delete();
 
         // Generate new access token
-        $tokenResult = $user->createToken('acces_token', ['*']);
+        $tokenResult = $user->createToken('access_token', ['*']);
         $accessToken = $tokenResult->plainTextToken;
 
         // Generate new refresh token
