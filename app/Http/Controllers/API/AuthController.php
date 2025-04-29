@@ -39,7 +39,7 @@ class AuthController extends Controller
         $user = Auth::user();
 
         // Generate access token (1 hour)
-        $tokenResult = $user->createToken('auth_token', ['*']);
+        $tokenResult = $user->createToken('acces_token', ['*']);
         $accessToken = $tokenResult->plainTextToken;
 
         // Generate refresh token (30 days)
@@ -85,7 +85,7 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Berhasil logout',
         ])->withCookie(cookie('access_token', '', 0))
-          ->withCookie(cookie('refresh_token', '', 0));
+            ->withCookie(cookie('refresh_token', '', 0));
     }
 
     public function refresh(Request $request)
@@ -120,7 +120,7 @@ class AuthController extends Controller
         $user->tokens()->delete();
 
         // Generate new access token
-        $tokenResult = $user->createToken('auth_token', ['*']);
+        $tokenResult = $user->createToken('acces_token', ['*']);
         $accessToken = $tokenResult->plainTextToken;
 
         // Generate new refresh token
@@ -153,7 +153,7 @@ class AuthController extends Controller
         ])->withCookie(cookie('access_token', $accessToken, $minutes, null, null, true, true, false, 'lax'))
             ->withCookie($refreshTokenCookie);
     }
-    
+
     public function user(Request $request)
     {
         $user = $request->user();
