@@ -57,14 +57,14 @@ class AuthController extends Controller
 
         // Hapus refresh token lama jika ada
         UserRefreshToken::where('user_id', $user->id)->delete();
-        
+
         // Simpan refresh token baru
         UserRefreshToken::create([
             'user_id' => $user->id,
             'refresh_token' => $refreshToken,
             'expires_at' => Carbon::now()->addDays(30),
         ]);
-        
+
         // Buat cookie untuk refresh token
         $refreshTokenCookie = cookie(
             'refresh_token',
@@ -81,14 +81,14 @@ class AuthController extends Controller
         // Buat cookie untuk access token
         $minutes = 60; // Expire dalam 60 menit
         $accessTokenCookie = cookie(
-            'access_token', 
-            $accessToken, 
-            $minutes, 
-            null, 
-            null, 
+            'access_token',
+            $accessToken,
+            $minutes,
+            null,
+            null,
             env('APP_ENV') === 'production', // Secure hanya di production
-            true, 
-            false, 
+            true,
+            false,
             'lax'
         );
 
@@ -98,8 +98,8 @@ class AuthController extends Controller
             'user' => new UserResource($user),
             'message' => 'Login berhasil',
         ], 200)
-        ->withCookie($accessTokenCookie)
-        ->withCookie($refreshTokenCookie);
+            ->withCookie($accessTokenCookie)
+            ->withCookie($refreshTokenCookie);
     }
 
     /**
@@ -111,10 +111,10 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $user = $request->user();
-        
+
         if ($user) {
             Log::info('User logout: ' . $user->username . ' (ID: ' . $user->id . ')');
-            
+
             // Cabut semua token
             $user->tokens()->delete();
 
@@ -126,8 +126,8 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Berhasil logout',
         ])
-        ->withCookie(cookie('access_token', '', 0))
-        ->withCookie(cookie('refresh_token', '', 0));
+            ->withCookie(cookie('access_token', '', 0))
+            ->withCookie(cookie('refresh_token', '', 0));
     }
 
     /**
@@ -157,7 +157,7 @@ class AuthController extends Controller
         // Debug untuk melihat semua token yang tersedia
         if (config('app.debug')) {
             $allTokens = UserRefreshToken::all()
-                ->map(function($token) use ($refreshToken) {
+                ->map(function ($token) use ($refreshToken) {
                     return [
                         'id' => $token->id,
                         'user_id' => $token->user_id,
@@ -223,14 +223,14 @@ class AuthController extends Controller
         // Buat cookie access token baru
         $minutes = 60; // Expire access token 60 menit
         $accessTokenCookie = cookie(
-            'access_token', 
-            $accessToken, 
-            $minutes, 
-            null, 
-            null, 
+            'access_token',
+            $accessToken,
+            $minutes,
+            null,
+            null,
             env('APP_ENV') === 'production', // Secure hanya di production
-            true, 
-            false, 
+            true,
+            false,
             'lax'
         );
 
@@ -240,10 +240,10 @@ class AuthController extends Controller
             'user' => new UserResource($user),
             'message' => 'Token berhasil diperbarui',
         ])
-        ->withCookie($accessTokenCookie)
-        ->withCookie($refreshTokenCookie);
+            ->withCookie($accessTokenCookie)
+            ->withCookie($refreshTokenCookie);
     }
-    
+
     /**
      * Mendapatkan informasi user yang sedang login
      * 
@@ -319,6 +319,25 @@ class AuthController extends Controller
         return response()->json([
             'user' => new UserResource($user),
             'puskesmas' => $user->puskesmas,
+        ]);
+    }
+
+    public function checkAuthStatus(Request $request)
+    {
+        return response()->json([
+            'has_access_token_cookie' => $request->hasCookie('access_token'),
+            'has_refresh_token_cookie' => $request->hasCookie('refresh_token'),
+            'authenticated' => Auth::check(),
+            'user_id' => Auth::check() ? Auth::id() : null,
+            'cookie_info' => [
+                'cookies_received' => $request->cookie(),
+            ],
+            'server_info' => [
+                'app_url' => config('app.url'),
+                'session_domain' => config('session.domain'),
+                'session_secure' => config('session.secure'),
+                'session_same_site' => config('session.same_site'),
+            ]
         ]);
     }
 }

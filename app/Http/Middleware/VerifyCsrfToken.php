@@ -15,7 +15,6 @@ class VerifyCsrfToken extends Middleware
         // Sanctum csrf-cookie endpoint must be excluded
         'sanctum/csrf-cookie',
         // Public API endpoints that don't require CSRF
-        'api/login',
-        'api/refresh'
+        'api/*'
     ];
 }
