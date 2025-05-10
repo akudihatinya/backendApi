@@ -117,7 +117,6 @@ class UserController extends Controller
                 'message' => 'User puskesmas berhasil ditambahkan',
                 'user' => new UserResource($user),
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -177,7 +176,7 @@ class UserController extends Controller
 
         // Revoke all active tokens for this user
         $user->tokens()->delete();
-        
+
         // Delete all refresh tokens
         $user->refreshTokens()->delete();
 
@@ -212,7 +211,7 @@ class UserController extends Controller
 
         // Delete all access tokens
         $user->tokens()->delete();
-        
+
         // Delete user
         $user->delete();
 

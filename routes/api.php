@@ -25,16 +25,11 @@ use App\Http\Middleware\AdminOrPuskesmas;
 | be assigned to the "api" middleware group.
 |
 */
-
-// CSRF cookie for SPA authentication
-Route::get('/sanctum/csrf-cookie', function() {
-    return response()->json(['message' => 'CSRF cookie set']);
-})->middleware(['api']);
+// Route untuk cek otentikasi tanpa middleware auth
+Route::get('/auth/check', [AuthController::class, 'check']);
 
 // Public routes (authentication endpoints)
 Route::post('/login', [AuthController::class, 'login']);
-Route::post('/refresh', [AuthController::class, 'refresh']);
-
 // Protected routes (require authentication)
 Route::middleware(['auth:sanctum'])->group(function () {
     // Auth routes
@@ -101,13 +96,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Monitoring Reports
         Route::get('/monitoring', [StatisticsController::class, 'exportMonitoringReport']);
-        
+
         Route::get('/monitoring/ht', function (Request $request) {
             return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['type' => 'ht'])
             );
         });
-        
+
         Route::get('/monitoring/dm', function (Request $request) {
             return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['type' => 'dm'])

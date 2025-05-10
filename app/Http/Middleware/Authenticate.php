@@ -21,13 +21,6 @@ class Authenticate extends Middleware
      */
     public function handle($request, Closure $next, ...$guards)
     {
-        // Extract token from cookie
-        $token = $request->cookie('access_token');
-        
-        if ($token) {
-            // Set Authorization header for Sanctum
-            $request->headers->set('Authorization', 'Bearer ' . $token);
-        }
 
         return parent::handle($request, $next, ...$guards);
     }
