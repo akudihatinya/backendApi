@@ -13,16 +13,12 @@ return new class extends Migration
             $table->foreignId('puskesmas_id')->constrained()->onDelete('cascade');
             $table->string('nik', 16)->nullable()->unique();
             $table->string('bpjs_number', 20)->nullable();
+            $table->string('medical_record_number')->nullable();
             $table->string('name');
             $table->text('address')->nullable();
             $table->enum('gender', ['male', 'female'])->nullable();
             $table->date('birth_date')->nullable();
             $table->integer('age')->nullable();
-            // Remove default value as it will be calculated based on ht_years
-            $table->boolean('has_ht')->nullable();
-            // Remove default value as it will be calculated based on dm_years
-            $table->boolean('has_dm')->nullable();
-            // Add JSON arrays for exam years
             $table->json('ht_years')->nullable();
             $table->json('dm_years')->nullable();
             $table->timestamps();

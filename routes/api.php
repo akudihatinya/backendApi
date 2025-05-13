@@ -15,17 +15,6 @@ use App\Http\Middleware\IsAdmin;
 use App\Http\Middleware\IsPuskesmas;
 use App\Http\Middleware\AdminOrPuskesmas;
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-|
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group.
-|
-*/
-
 // CSRF cookie for SPA authentication
 Route::get('/sanctum/csrf-cookie', function () {
     return response()->json(['message' => 'CSRF cookie set']);
@@ -101,13 +90,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Monitoring Reports
         Route::get('/monitoring', [StatisticsController::class, 'exportMonitoringReport']);
-
         Route::get('/monitoring/ht', function (Request $request) {
             return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['type' => 'ht'])
             );
         });
-
         Route::get('/monitoring/dm', function (Request $request) {
             return app(StatisticsController::class)->exportMonitoringReport(
                 $request->merge(['type' => 'dm'])
@@ -163,4 +150,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::apiResource('dm-examinations', DmExaminationController::class);
     });
 });
+
+// Debug route - remove for production
 Route::get('/debug/auth-status', [AuthController::class, 'checkAuthStatus']);

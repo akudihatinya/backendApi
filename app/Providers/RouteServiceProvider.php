@@ -12,10 +12,6 @@ class RouteServiceProvider extends ServiceProvider
 {
     /**
      * The path to your application's "home" route.
-     *
-     * Typically, users are redirected here after authentication.
-     *
-     * @var string
      */
     public const HOME = '/home';
 
@@ -31,8 +27,9 @@ class RouteServiceProvider extends ServiceProvider
                 ->prefix('api')
                 ->group(base_path('routes/api.php'));
 
-            Route::middleware('web')
-                ->group(base_path('routes/web.php'));
+            // Hapus atau komentari baris berikut jika tidak pakai route web
+            // Route::middleware('web')
+            //     ->group(base_path('routes/web.php'));
         });
     }
 

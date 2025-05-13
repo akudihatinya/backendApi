@@ -20,7 +20,7 @@ class PatientResource extends JsonResource
             'puskesmas_id' => $this->puskesmas_id,
             'nik' => $this->nik,
             'bpjs_number' => $this->bpjs_number,
-            'medical_record_number' => $this->medical_record_number, // Include medical record number
+            'medical_record_number' => $this->medical_record_number,
             'name' => $this->name,
             'address' => $this->address,
             'gender' => $this->gender,

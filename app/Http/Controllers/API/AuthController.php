@@ -20,9 +20,6 @@ class AuthController extends Controller
 {
     /**
      * Login user dan memberikan access token dan refresh token
-     * 
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function login(Request $request)
     {
@@ -104,9 +101,6 @@ class AuthController extends Controller
 
     /**
      * Logout user dan mencabut semua token
-     * 
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function logout(Request $request)
     {
@@ -132,9 +126,6 @@ class AuthController extends Controller
 
     /**
      * Memperbarui access token dengan menggunakan refresh token
-     * 
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function refresh(Request $request)
     {
@@ -246,9 +237,6 @@ class AuthController extends Controller
 
     /**
      * Mendapatkan informasi user yang sedang login
-     * 
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function user(Request $request)
     {
@@ -275,9 +263,6 @@ class AuthController extends Controller
 
     /**
      * Mengubah password user yang sedang login
-     * 
-     * @param ChangePasswordRequest $request
-     * @return \Illuminate\Http\JsonResponse
      */
     public function changePassword(ChangePasswordRequest $request)
     {
@@ -322,6 +307,9 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Debug endpoint to check auth status
+     */
     public function checkAuthStatus(Request $request)
     {
         return response()->json([

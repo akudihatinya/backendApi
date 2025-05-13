@@ -189,7 +189,7 @@ class DashboardController extends Controller
     public function dinasIndex(Request $request): JsonResponse
     {
         // Verify user is admin
-        if (!Auth::user()->is_admin) {
+        if (!Auth::user()->isAdmin()) {
             return response()->json([
                 'message' => 'Unauthorized. Admin access required.',
             ], 403);

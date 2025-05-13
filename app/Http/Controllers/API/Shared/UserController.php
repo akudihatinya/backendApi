@@ -14,9 +14,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Cookie;
 
 class UserController extends Controller
 {
@@ -104,10 +101,14 @@ class UserController extends Controller
                 'role' => $data['role'],
             ]);
 
-            Puskesmas::create([
+            $puskesmas = Puskesmas::create([
                 'user_id' => $user->id,
                 'name' => $data['name'],
             ]);
+            
+            // Update user with puskesmas_id
+            $user->puskesmas_id = $puskesmas->id;
+            $user->save();
 
             DB::commit();
 
@@ -128,7 +129,7 @@ class UserController extends Controller
 
             return response()->json([
                 'message' => 'Gagal menambahkan user',
-                'debug_info' => app()->environment('local') ? $e->getTraceAsString() : null,
+                'debug_info' => app()->environment('local') ? $e->getMessage() : null,
             ], 500);
         }
     }

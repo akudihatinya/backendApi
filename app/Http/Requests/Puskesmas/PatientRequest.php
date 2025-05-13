@@ -18,6 +18,7 @@ class PatientRequest extends FormRequest
         return [
             'nik' => 'nullable|string|size:16|unique:patients,nik,' . $patientId,
             'bpjs_number' => 'nullable|string|max:20',
+            'medical_record_number' => 'nullable|string|max:50',
             'name' => 'required|string|max:255',
             'address' => 'nullable|string',
             'gender' => 'nullable|in:male,female',

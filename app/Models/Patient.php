@@ -13,7 +13,7 @@ class Patient extends Model
         'puskesmas_id',
         'nik',
         'bpjs_number',
-        'medical_record_number', // Tambahkan field ini
+        'medical_record_number',
         'name',
         'address',
         'gender',

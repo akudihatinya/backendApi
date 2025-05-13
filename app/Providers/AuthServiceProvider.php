@@ -28,45 +28,45 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('admin', function ($user) {
             return $user->role === 'admin';
         });
-        
+
         Gate::define('puskesmas', function ($user) {
             return $user->role === 'puskesmas';
         });
-        
+
         // Define gates for managing data
         Gate::define('manage-patients', function ($user, Patient $patient = null) {
             if (!$user->isPuskesmas()) {
                 return false;
             }
-            
+
             if (!$patient) {
                 return true;
             }
-            
+
             return $patient->puskesmas_id === $user->puskesmas->id;
         });
-        
+
         Gate::define('manage-ht-examinations', function ($user, HtExamination $examination = null) {
             if (!$user->isPuskesmas()) {
                 return false;
             }
-            
+
             if (!$examination) {
                 return true;
             }
-            
+
             return $examination->puskesmas_id === $user->puskesmas->id;
         });
-        
+
         Gate::define('manage-dm-examinations', function ($user, DmExamination $examination = null) {
             if (!$user->isPuskesmas()) {
                 return false;
             }
-            
+
             if (!$examination) {
                 return true;
             }
-            
+
             return $examination->puskesmas_id === $user->puskesmas->id;
         });
     }
