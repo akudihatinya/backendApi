@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Cache;
 
 use App\Models\DmExamination;
 use App\Models\HtExamination;
@@ -19,7 +19,7 @@ class StatisticsCacheService
         $patient = Patient::find($examination->patient_id);
         $date = Carbon::parse($examination->examination_date);
 
-        // Cek apakah pasien sudah pernah datang di bulan ini
+        // Check if patient already has a visit this month
         $previousExams = $this->getPreviousExaminations(
             $examination->patient_id,
             $examination->puskesmas_id,
@@ -29,9 +29,9 @@ class StatisticsCacheService
             $examination->id
         );
 
-        // Jika ini kunjungan pertama di bulan ini
+        // If this is the first visit in this month
         if ($previousExams->isEmpty()) {
-            // Cek apakah pasien standar atau tidak
+            // Check if patient is standard or not
             $isStandard = $this->checkIfPatientIsStandard(
                 $examination->patient_id,
                 $date->year,

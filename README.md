@@ -1,66 +1,151 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Healthcare Monitoring System - Backend API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel-based RESTful API for healthcare monitoring, focusing on managing patients with hypertension (HT) and diabetes mellitus (DM) conditions.
 
-## About Laravel
+## Overview
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+This system provides a comprehensive API for Puskesmas (Community Health Centers) to manage their patients' examination data and for the Health Department (Dinas) to monitor overall statistical data across all health centers.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Key Features
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- Authentication with JWT tokens (stored in localStorage)
+- Role-based access control (Admin and Puskesmas)
+- Patient management
+- Hypertension and Diabetes examination tracking
+- Statistical reporting and analytics
+- Data export functionality
 
-## Learning Laravel
+## API Structure
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+The API is organized into the following domains:
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+1. **Authentication** - Login, logout, refresh token, user info
+2. **Admin** - User management, yearly targets setting
+3. **Puskesmas** - Patient and examination management
+4. **Statistics** - Data aggregation and reporting
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## API Authentication
 
-## Laravel Sponsors
+All protected endpoints require authentication using Bearer token. 
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```
+Authorization: Bearer {your_access_token}
+```
 
-### Premium Partners
+Authentication flow:
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+1. **Login**: Send credentials to `/api/login`, receive access and refresh tokens
+2. **Use token**: Include access token in Authorization header
+3. **Refresh token**: When token expires, use `/api/refresh` with refresh token to get a new access token
 
-## Contributing
+## API Endpoints
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Authentication
 
-## Code of Conduct
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/login` | Login with username and password |
+| POST | `/api/refresh` | Refresh access token using refresh token |
+| POST | `/api/logout` | Logout and invalidate tokens |
+| GET | `/api/user` | Get authenticated user info |
+| POST | `/api/change-password` | Change user password |
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Admin Endpoints
 
-## Security Vulnerabilities
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/users` | Get all users |
+| POST | `/api/admin/users` | Create new user |
+| GET | `/api/admin/users/{id}` | Get user by ID |
+| PUT | `/api/admin/users/{id}` | Update user |
+| DELETE | `/api/admin/users/{id}` | Delete user |
+| POST | `/api/admin/users/{id}/reset-password` | Reset user password |
+| GET | `/api/admin/yearly-targets` | Get yearly targets |
+| POST | `/api/admin/yearly-targets` | Create yearly target |
+| PUT | `/api/admin/yearly-targets/{id}` | Update yearly target |
+| DELETE | `/api/admin/yearly-targets/{id}` | Delete yearly target |
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+### Puskesmas Endpoints
 
-## License
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/puskesmas/patients` | Get all patients |
+| POST | `/api/puskesmas/patients` | Create new patient |
+| GET | `/api/puskesmas/patients/{id}` | Get patient by ID |
+| PUT | `/api/puskesmas/patients/{id}` | Update patient |
+| DELETE | `/api/puskesmas/patients/{id}` | Delete patient |
+| POST | `/api/puskesmas/patients/{id}/examination-year` | Add examination year |
+| PUT | `/api/puskesmas/patients/{id}/examination-year` | Remove examination year |
+| GET | `/api/puskesmas/ht-examinations` | Get HT examinations |
+| POST | `/api/puskesmas/ht-examinations` | Create HT examination |
+| GET | `/api/puskesmas/ht-examinations/{id}` | Get HT examination |
+| PUT | `/api/puskesmas/ht-examinations/{id}` | Update HT examination |
+| DELETE | `/api/puskesmas/ht-examinations/{id}` | Delete HT examination |
+| GET | `/api/puskesmas/dm-examinations` | Get DM examinations |
+| POST | `/api/puskesmas/dm-examinations` | Create DM examination |
+| GET | `/api/puskesmas/dm-examinations/{id}` | Get DM examination for patient |
+| PUT | `/api/puskesmas/dm-examinations/{id}` | Update DM examination |
+| DELETE | `/api/puskesmas/dm-examinations/{id}` | Delete DM examination |
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### Statistics Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/statistics` | Get all statistics |
+| GET | `/api/statistics/dashboard-statistics` | Get dashboard stats |
+| GET | `/api/statistics/ht` | Get HT statistics |
+| GET | `/api/statistics/dm` | Get DM statistics |
+| GET | `/api/statistics/export` | Export statistics (Excel/PDF) |
+| GET | `/api/statistics/monitoring` | Get monitoring report |
+
+## Common API Parameters
+
+- `per_page`: Number of items per page (default varies by endpoint)
+- `page`: Page number for pagination
+- `year`: Filter by year
+- `month`: Filter by month
+- `disease_type`: Filter by disease type ('ht', 'dm', 'both', 'all')
+- `search`: Search term for filtering
+
+## Local Development Setup
+
+1. Clone the repository
+2. Install dependencies:
+   ```
+   composer install
+   ```
+3. Set up environment variables:
+   ```
+   cp .env.example .env
+   php artisan key:generate
+   ```
+4. Configure database connection in `.env`
+5. Run migrations:
+   ```
+   php artisan migrate
+   ```
+6. Seed the database:
+   ```
+   php artisan db:seed
+   ```
+7. Start the development server:
+   ```
+   php artisan serve
+   ```
+
+## Frontend Integration
+
+This API is designed to work with a separate frontend application. To integrate:
+
+1. Configure CORS in `config/cors.php` with your frontend URL
+2. Store the JWT tokens in localStorage in your frontend app
+3. Include the token in all API requests to protected endpoints
+4. Handle token refresh when needed
+
+## Deployment Notes
+
+1. Update `.env` file with production settings
+2. Set up proper database credentials
+3. Configure CORS to allow only your frontend application
+4. Set up proper SSL for secure communication
+5. Implement proper monitoring and logging

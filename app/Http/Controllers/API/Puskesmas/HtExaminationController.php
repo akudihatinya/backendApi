@@ -4,21 +4,26 @@ namespace App\Http\Controllers\API\Puskesmas;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Puskesmas\HtExaminationRequest;
-use App\Http\Resources\HtExaminationCollection;
 use App\Http\Resources\HtExaminationResource;
 use App\Models\HtExamination;
-use App\Models\Patient;
-use Carbon\Carbon;
+use App\Services\Patient\HtExaminationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 
 class HtExaminationController extends Controller
 {
+    protected $htExaminationService;
+
+    public function __construct(HtExaminationService $htExaminationService)
+    {
+        $this->htExaminationService = $htExaminationService;
+    }
+
     /**
      * Display a listing of HT examinations
      */
-    public function index(Request $request): HtExaminationCollection|JsonResponse
+    public function index(Request $request): JsonResponse
     {
         // Get the authenticated user's puskesmas id
         $puskesmasId = Auth::user()->puskesmas_id;
@@ -29,33 +34,31 @@ class HtExaminationController extends Controller
             ], 403);
         }
         
-        $query = HtExamination::where('puskesmas_id', $puskesmasId)
-            ->with('patient');
+        // Get filters from request
+        $filters = [
+            'year' => $request->year,
+            'month' => $request->month,
+            'is_archived' => $request->is_archived,
+            'patient_id' => $request->patient_id,
+        ];
         
-        // Filter by year
-        if ($request->has('year')) {
-            $query->where('year', $request->year);
-        }
+        $examinations = $this->htExaminationService->getAllExaminations(
+            $puskesmasId, 
+            $filters, 
+            $request->per_page ?? 10
+        );
         
-        // Filter by month
-        if ($request->has('month')) {
-            $query->where('month', $request->month);
-        }
-        
-        // Filter by archived status
-        if ($request->has('is_archived')) {
-            $query->where('is_archived', $request->is_archived);
-        }
-        
-        // Filter by patient
-        if ($request->has('patient_id')) {
-            $query->where('patient_id', $request->patient_id);
-        }
-        
-        $examinations = $query->orderBy('examination_date', 'desc')
-            ->paginate($request->per_page ?? 10);
-        
-        return new HtExaminationCollection($examinations);
+        return response()->json([
+            'data' => HtExaminationResource::collection($examinations->items()),
+            'meta' => [
+                'current_page' => $examinations->currentPage(),
+                'from' => $examinations->firstItem(),
+                'last_page' => $examinations->lastPage(),
+                'per_page' => $examinations->perPage(),
+                'to' => $examinations->lastItem(),
+                'total' => $examinations->total(),
+            ],
+        ]);
     }
     
     /**
@@ -72,28 +75,7 @@ class HtExaminationController extends Controller
             ], 403);
         }
         
-        $date = Carbon::parse($data['examination_date']);
-        $data['year'] = $date->year;
-        $data['month'] = $date->month;
-        
-        // Set archived status based on year
-        $data['is_archived'] = $date->year < Carbon::now()->year;
-        
-        // Make sure the patient belongs to this puskesmas
-        $patient = Patient::findOrFail($data['patient_id']);
-        if ($patient->puskesmas_id !== $data['puskesmas_id']) {
-            return response()->json([
-                'message' => 'Pasien bukan milik puskesmas Anda',
-            ], 403);
-        }
-        
-        // Add the year to patient's ht_years if not exists
-        if (!$patient->hasHtInYear($data['year'])) {
-            $patient->addHtYear($data['year']);
-            $patient->save();
-        }
-        
-        $examination = HtExamination::create($data);
+        $examination = $this->htExaminationService->createExamination($data);
         
         return response()->json([
             'message' => 'Pemeriksaan Hipertensi berhasil ditambahkan',
@@ -132,7 +114,7 @@ class HtExaminationController extends Controller
         
         // Check if patient belongs to this puskesmas
         if (isset($data['patient_id'])) {
-            $patient = Patient::findOrFail($data['patient_id']);
+            $patient = \App\Models\Patient::findOrFail($data['patient_id']);
             if ($patient->puskesmas_id !== Auth::user()->puskesmas_id) {
                 return response()->json([
                     'message' => 'Pasien bukan milik puskesmas Anda',
@@ -140,18 +122,11 @@ class HtExaminationController extends Controller
             }
         }
         
-        $date = Carbon::parse($data['examination_date']);
-        $data['year'] = $date->year;
-        $data['month'] = $date->month;
-        
-        // Set archived status based on year
-        $data['is_archived'] = $date->year < Carbon::now()->year;
-        
-        $htExamination->update($data);
+        $updatedExamination = $this->htExaminationService->updateExamination($htExamination->id, $data);
         
         return response()->json([
             'message' => 'Pemeriksaan Hipertensi berhasil diupdate',
-            'examination' => new HtExaminationResource($htExamination),
+            'examination' => new HtExaminationResource($updatedExamination),
         ]);
     }
     
@@ -166,7 +141,7 @@ class HtExaminationController extends Controller
             ], 403);
         }
         
-        $htExamination->delete();
+        $this->htExaminationService->deleteExamination($htExamination->id);
         
         return response()->json([
             'message' => 'Pemeriksaan Hipertensi berhasil dihapus',

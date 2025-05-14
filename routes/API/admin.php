@@ -1,16 +1,21 @@
 <?php
 
-use App\Http\Controllers\API\Admin\UserManagementController;
 use App\Http\Controllers\API\Admin\YearlyTargetController;
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\API\Shared\UserController;
 use App\Http\Middleware\IsAdmin;
+use Illuminate\Support\Facades\Route;
 
-// Admin routes - semua route di sini memerlukan IsAdmin middleware
+/*
+|--------------------------------------------------------------------------
+| API Admin Routes
+|--------------------------------------------------------------------------
+*/
+
 Route::middleware(['auth:sanctum', IsAdmin::class])->prefix('admin')->group(function () {
-    // User Management 
-    Route::apiResource('users', UserManagementController::class);
-    Route::post('/users/{user}/reset-password', [UserManagementController::class, 'resetPassword']);
+    // User management
+    Route::apiResource('users', UserController::class);
+    Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword']);
 
-    // Yearly Targets
+    // Yearly targets
     Route::apiResource('yearly-targets', YearlyTargetController::class);
 });

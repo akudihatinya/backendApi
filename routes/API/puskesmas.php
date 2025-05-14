@@ -4,16 +4,23 @@ use App\Http\Controllers\API\Puskesmas\DmExaminationController;
 use App\Http\Controllers\API\Puskesmas\HtExaminationController;
 use App\Http\Controllers\API\Puskesmas\PatientController;
 use App\Http\Controllers\API\Puskesmas\ProfileController;
-use Illuminate\Support\Facades\Route;
 use App\Http\Middleware\IsPuskesmas;
+use Illuminate\Support\Facades\Route;
 
-// Puskesmas routes
+/*
+|--------------------------------------------------------------------------
+| API Puskesmas Routes
+|--------------------------------------------------------------------------
+*/
+
 Route::middleware(['auth:sanctum', IsPuskesmas::class])->prefix('puskesmas')->group(function () {
-    // Profile Management
+    // Profile management
     Route::post('/profile', [ProfileController::class, 'update']);
-    
-    // Patients Management
+
+    // Patients management
     Route::apiResource('patients', PatientController::class);
+
+    // Examination years
     Route::post('/patients/{patient}/examination-year', [PatientController::class, 'addExaminationYear']);
     Route::put('/patients/{patient}/examination-year', [PatientController::class, 'removeExaminationYear']);
 

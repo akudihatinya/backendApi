@@ -4,17 +4,22 @@ namespace App\Http\Controllers\API\Puskesmas;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Puskesmas\DmExaminationRequest;
-use App\Http\Resources\DmExaminationResource;
 use App\Models\DmExamination;
 use App\Models\Patient;
-use Carbon\Carbon;
+use App\Services\Patient\DmExaminationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 
 class DmExaminationController extends Controller
 {
+    protected $dmExaminationService;
+
+    public function __construct(DmExaminationService $dmExaminationService)
+    {
+        $this->dmExaminationService = $dmExaminationService;
+    }
+
     /**
      * Display a listing of DM examinations grouped by date
      */
@@ -29,115 +34,23 @@ class DmExaminationController extends Controller
             ], 403);
         }
 
-        // Build the base query
-        $baseQuery = DmExamination::where('puskesmas_id', $puskesmasId)
-            ->with('patient');
-
-        // Apply filters
-        if ($request->has('year')) {
-            $baseQuery->where('year', $request->year);
-        }
-
-        if ($request->has('month')) {
-            $baseQuery->where('month', $request->month);
-        }
-
-        if ($request->has('is_archived')) {
-            $baseQuery->where('is_archived', $request->is_archived);
-        }
-
-        if ($request->has('patient_id')) {
-            $baseQuery->where('patient_id', $request->patient_id);
-        }
-
-        // Get unique date-patient combinations for pagination
-        $uniqueExamDates = DB::table('dm_examinations')
-            ->select('patient_id', 'examination_date')
-            ->where('puskesmas_id', $puskesmasId)
-            ->when($request->has('year'), function ($q) use ($request) {
-                return $q->where('year', $request->year);
-            })
-            ->when($request->has('month'), function ($q) use ($request) {
-                return $q->where('month', $request->month);
-            })
-            ->when($request->has('is_archived'), function ($q) use ($request) {
-                return $q->where('is_archived', $request->is_archived);
-            })
-            ->when($request->has('patient_id'), function ($q) use ($request) {
-                return $q->where('patient_id', $request->patient_id);
-            })
-            ->distinct()
-            ->orderBy('examination_date', 'desc')
-            ->paginate($request->per_page ?? 15);
-
-        // Prepare results
-        $result = [];
-        $patientIds = [];
-
-        // Collect all patient IDs
-        foreach ($uniqueExamDates as $item) {
-            $patientIds[] = $item->patient_id;
-        }
-
-        // Get all patients at once
-        $patients = Patient::whereIn('id', $patientIds)->get()->keyBy('id');
-
-        // Get all examinations at once
-        $allExaminations = DmExamination::where('puskesmas_id', $puskesmasId)
-            ->whereIn('patient_id', $patientIds)
-            ->get();
-
-        // Group examinations by patient and date
-        $groupedExams = [];
-        foreach ($allExaminations as $exam) {
-            $key = $exam->patient_id . '_' . $exam->examination_date->format('Y-m-d');
-            if (!isset($groupedExams[$key])) {
-                $groupedExams[$key] = [
-                    'id' => $exam->id,
-                    'patient_id' => $exam->patient_id,
-                    'patient_name' => $patients[$exam->patient_id]->name,
-                    'puskesmas_id' => $exam->puskesmas_id,
-                    'examination_date' => $exam->examination_date->format('Y-m-d'),
-                    'examination_results' => [
-                        'hba1c' => null,
-                        'gdp' => null,
-                        'gd2jpp' => null,
-                        'gdsp' => null
-                    ],
-                    'year' => $exam->year,
-                    'month' => $exam->month,
-                    'is_archived' => $exam->is_archived
-                ];
-            }
-            $groupedExams[$key]['examination_results'][$exam->examination_type] = $exam->result;
-        }
-
-        // Build result array following pagination order
-        foreach ($uniqueExamDates as $item) {
-            $key = $item->patient_id . '_' . Carbon::parse($item->examination_date)->format('Y-m-d');
-            if (isset($groupedExams[$key])) {
-                $result[] = $groupedExams[$key];
-            }
-        }
-
-        // Return response with clean JSON format
+        // Get filters from request
+        $filters = [
+            'year' => $request->year,
+            'month' => $request->month,
+            'is_archived' => $request->is_archived,
+            'patient_id' => $request->patient_id,
+        ];
+        
+        $result = $this->dmExaminationService->getAllExaminations(
+            $puskesmasId, 
+            $filters, 
+            $request->per_page ?? 15
+        );
+        
         return response()->json([
-            'data' => $result,
-            'links' => [
-                'first' => $uniqueExamDates->url(1),
-                'last' => $uniqueExamDates->url($uniqueExamDates->lastPage()),
-                'prev' => $uniqueExamDates->previousPageUrl(),
-                'next' => $uniqueExamDates->nextPageUrl(),
-            ],
-            'meta' => [
-                'current_page' => $uniqueExamDates->currentPage(),
-                'from' => $uniqueExamDates->firstItem(),
-                'last_page' => $uniqueExamDates->lastPage(),
-                'path' => $request->url(),
-                'per_page' => $uniqueExamDates->perPage(),
-                'to' => $uniqueExamDates->lastItem(),
-                'total' => $uniqueExamDates->total(),
-            ],
+            'data' => $result['data'],
+            'meta' => $result['pagination'],
         ]);
     }
 
@@ -161,7 +74,7 @@ class DmExaminationController extends Controller
                 'required',
                 'exists:patients,id',
                 function ($attribute, $value, $fail) use ($puskesmasId) {
-                    $patient = \App\Models\Patient::find($value);
+                    $patient = Patient::find($value);
 
                     if (!$patient) {
                         $fail('Pasien tidak ditemukan.');
@@ -181,96 +94,19 @@ class DmExaminationController extends Controller
             'examinations.gdsp' => 'nullable|numeric|min:0|max:1000',
         ]);
 
-        $patientId = $request->patient_id;
-        $examinationDate = $request->examination_date;
-        $date = Carbon::parse($examinationDate);
-        $year = $date->year;
-        $month = $date->month;
-        $isArchived = $date->year < Carbon::now()->year;
-
-        // Make sure patient has DM year added
-        $patient = Patient::findOrFail($patientId);
-        if (!$patient->hasDmInYear($year)) {
-            $patient->addDmYear($year);
-            $patient->save();
-        }
-
-        DB::beginTransaction();
         try {
-            // Delete all examinations for this date first
-            $existingTypes = ['hba1c', 'gdp', 'gd2jpp', 'gdsp'];
-            foreach ($existingTypes as $type) {
-                if (array_key_exists($type, $request->examinations)) {
-                    DmExamination::where('patient_id', $patientId)
-                        ->where('puskesmas_id', $puskesmasId)
-                        ->whereDate('examination_date', $examinationDate)
-                        ->where('examination_type', $type)
-                        ->delete();
-                }
-            }
-
-            $createdExaminations = [];
-
-            // Create new examinations only for non-null values
-            foreach ($request->examinations as $type => $result) {
-                if ($result !== null) {
-                    $examination = DmExamination::create([
-                        'patient_id' => $patientId,
-                        'puskesmas_id' => $puskesmasId,
-                        'examination_date' => $examinationDate,
-                        'examination_type' => $type,
-                        'result' => $result,
-                        'year' => $year,
-                        'month' => $month,
-                        'is_archived' => $isArchived,
-                    ]);
-
-                    $createdExaminations[] = $examination;
-                }
-            }
-
-            DB::commit();
-
-            // Get all examinations for this date
-            $allExaminations = DmExamination::where('patient_id', $patientId)
-                ->where('puskesmas_id', $puskesmasId)
-                ->whereDate('examination_date', $examinationDate)
-                ->get();
-
-            // Format response
-            $examinationResults = [
-                'hba1c' => null,
-                'gdp' => null,
-                'gd2jpp' => null,
-                'gdsp' => null
-            ];
-
-            foreach ($allExaminations as $exam) {
-                $examinationResults[$exam->examination_type] = $exam->result;
-            }
-
-            // Base ID for response
-            $baseId = count($createdExaminations) > 0 ? $createdExaminations[0]->id : null;
-
-            // Create response data
-            $responseData = [
-                'id' => $baseId,
-                'patient_id' => $patientId,
-                'patient_name' => $patient->name,
-                'puskesmas_id' => $puskesmasId,
-                'examination_date' => $examinationDate,
-                'examination_results' => $examinationResults,
-                'year' => $year,
-                'month' => $month,
-                'is_archived' => $isArchived
-            ];
+            $examination = $this->dmExaminationService->createExaminations(
+                $request->patient_id,
+                $puskesmasId,
+                $request->examination_date,
+                $request->examinations
+            );
 
             return response()->json([
                 'message' => 'Pemeriksaan Diabetes Mellitus berhasil ditambahkan',
-                'examination' => $responseData,
+                'examination' => $examination,
             ], 201);
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Terjadi kesalahan saat menyimpan pemeriksaan',
                 'error' => $e->getMessage()
@@ -300,37 +136,18 @@ class DmExaminationController extends Controller
 
         $filterYear = $request->query('year');
         $filterMonth = $request->query('month');
-        $types = ['hba1c', 'gdp', 'gd2jpp', 'gdsp'];
-        $result = [];
-
-        // Get examination years for this patient
-        $years = $filterYear ? [$filterYear] : ($patient->dm_years ?? []);
-
-        foreach ($years as $year) {
-            $months = $filterMonth ? [$filterMonth] : range(1, 12);
-
-            foreach ($months as $month) {
-                $monthlyData = [];
-
-                foreach ($types as $type) {
-                    $exam = DmExamination::where('patient_id', $patientId)
-                        ->where('year', $year)
-                        ->where('month', $month)
-                        ->where('examination_type', $type)
-                        ->first();
-
-                    $monthlyData[$type] = $exam ? $exam->result : null;
-                }
-
-                $result[$year][$month] = $monthlyData;
-            }
-        }
+        
+        $examinations = $this->dmExaminationService->getPatientExaminationsByYearMonth(
+            $patientId,
+            $filterYear ?? null,
+            $filterMonth ?? null
+        );
 
         return response()->json([
             'patient_id' => $patient->id,
             'patient_name' => $patient->name,
             'puskesmas_id' => $patient->puskesmas_id,
-            'examinations_by_year' => $result
+            'examinations_by_year' => $examinations
         ]);
     }
 
@@ -351,7 +168,7 @@ class DmExaminationController extends Controller
                 'required',
                 'exists:patients,id',
                 function ($attribute, $value, $fail) {
-                    $patient = \App\Models\Patient::find($value);
+                    $patient = Patient::find($value);
 
                     if (!$patient) {
                         $fail('Pasien tidak ditemukan.');
@@ -371,89 +188,19 @@ class DmExaminationController extends Controller
             'examinations.gdsp' => 'nullable|numeric|min:0|max:1000',
         ]);
 
-        $patientId = $request->patient_id;
-        $examinationDate = $request->examination_date;
-        $puskesmasId = Auth::user()->puskesmas_id;
-        $date = Carbon::parse($examinationDate);
-        $year = $date->year;
-        $month = $date->month;
-        $isArchived = $date->year < Carbon::now()->year;
-
-        DB::beginTransaction();
         try {
-            // Delete and recreate examinations
-            $existingTypes = ['hba1c', 'gdp', 'gd2jpp', 'gdsp'];
-
-            foreach ($existingTypes as $type) {
-                if (array_key_exists($type, $request->examinations)) {
-                    // Delete existing examination of this type
-                    DmExamination::where('patient_id', $patientId)
-                        ->where('puskesmas_id', $puskesmasId)
-                        ->whereDate('examination_date', $examinationDate)
-                        ->where('examination_type', $type)
-                        ->delete();
-
-                    // Create new if value is not null
-                    if ($request->examinations[$type] !== null) {
-                        DmExamination::create([
-                            'patient_id' => $patientId,
-                            'puskesmas_id' => $puskesmasId,
-                            'examination_date' => $examinationDate,
-                            'examination_type' => $type,
-                            'result' => $request->examinations[$type],
-                            'year' => $year,
-                            'month' => $month,
-                            'is_archived' => $isArchived,
-                        ]);
-                    }
-                }
-            }
-
-            DB::commit();
-
-            // Get all examinations for this date after update
-            $allExaminations = DmExamination::where('patient_id', $patientId)
-                ->where('puskesmas_id', $puskesmasId)
-                ->whereDate('examination_date', $examinationDate)
-                ->get();
-
-            // Format response
-            $examinationResults = [
-                'hba1c' => null,
-                'gdp' => null,
-                'gd2jpp' => null,
-                'gdsp' => null
-            ];
-
-            foreach ($allExaminations as $exam) {
-                $examinationResults[$exam->examination_type] = $exam->result;
-            }
-
-            // Use original ID or new ID if exists
-            $responseId = $dmExamination->id;
-            if ($allExaminations->isNotEmpty()) {
-                $responseId = $allExaminations->first()->id;
-            }
-
-            // Create response data
-            $responseData = [
-                'id' => $responseId,
-                'patient_id' => $patientId,
-                'patient_name' => Patient::find($patientId)->name,
-                'puskesmas_id' => $puskesmasId,
-                'examination_date' => $examinationDate,
-                'examination_results' => $examinationResults,
-                'year' => $year,
-                'month' => $month,
-                'is_archived' => $isArchived
-            ];
+            $examination = $this->dmExaminationService->updateExaminations(
+                $request->patient_id,
+                Auth::user()->puskesmas_id,
+                $request->examination_date,
+                $request->examinations
+            );
 
             return response()->json([
                 'message' => 'Pemeriksaan Diabetes Mellitus berhasil diupdate',
-                'examination' => $responseData,
+                'examination' => $examination,
             ]);
         } catch (\Exception $e) {
-            DB::rollBack();
             return response()->json([
                 'message' => 'Terjadi kesalahan saat memperbarui pemeriksaan',
                 'error' => $e->getMessage()
@@ -472,7 +219,16 @@ class DmExaminationController extends Controller
             ], 403);
         }
 
-        $dmExamination->delete();
+        // Get patient_id and date to delete all related examinations for this date
+        $patientId = $dmExamination->patient_id;
+        $examinationDate = $dmExamination->examination_date;
+        $puskesmasId = $dmExamination->puskesmas_id;
+
+        $this->dmExaminationService->deleteExaminations(
+            $patientId,
+            $puskesmasId,
+            $examinationDate
+        );
 
         return response()->json([
             'message' => 'Pemeriksaan Diabetes Mellitus berhasil dihapus',
