@@ -1,4 +1,4 @@
-# Healthcare Monitoring System - Backend API
+# akudihatinya - Backend API
 
 A Laravel-based RESTful API for healthcare monitoring, focusing on managing patients with hypertension (HT) and diabetes mellitus (DM) conditions.
 
