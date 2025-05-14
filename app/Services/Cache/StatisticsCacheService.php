@@ -6,131 +6,285 @@ use App\Models\DmExamination;
 use App\Models\HtExamination;
 use App\Models\MonthlyStatisticsCache;
 use App\Models\Patient;
+use App\Models\YearlyTarget;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class StatisticsCacheService
 {
     /**
-     * Update cache when new examination is created
+     * Update cache when a new examination is created
+     * 
+     * @param DmExamination|HtExamination $examination
+     * @param string $diseaseType 'dm' or 'ht'
      */
     public function updateCacheOnExaminationCreate($examination, string $diseaseType): void
     {
-        $patient = Patient::find($examination->patient_id);
         $date = Carbon::parse($examination->examination_date);
-
-        // Check if patient already has a visit this month
-        $previousExams = $this->getPreviousExaminations(
-            $examination->patient_id,
-            $examination->puskesmas_id,
-            $date->year,
-            $date->month,
+        $year = $date->year;
+        $month = $date->month;
+        $puskesmasId = $examination->puskesmas_id;
+        
+        // Get or create cache record
+        $cache = MonthlyStatisticsCache::firstOrNew([
+            'puskesmas_id' => $puskesmasId,
+            'disease_type' => $diseaseType,
+            'year' => $year,
+            'month' => $month,
+        ]);
+        
+        // If this is a new cache entry, initialize counts
+        if (!$cache->exists) {
+            $cache->fill([
+                'male_count' => 0,
+                'female_count' => 0,
+                'total_count' => 0,
+                'standard_count' => 0,
+                'non_standard_count' => 0,
+                'standard_percentage' => 0,
+            ]);
+            $cache->save();
+        }
+        
+        // Check if this is the first examination for this patient in this month
+        $isFirstExaminationThisMonth = $this->isFirstExaminationInMonth(
+            $examination->patient_id, 
+            $puskesmasId, 
+            $year, 
+            $month, 
             $diseaseType,
             $examination->id
         );
-
-        // If this is the first visit in this month
-        if ($previousExams->isEmpty()) {
-            // Check if patient is standard or not
-            $isStandard = $this->checkIfPatientIsStandard(
-                $examination->patient_id,
-                $date->year,
-                $date->month,
-                $diseaseType
-            );
-
-            // Update cache
-            $cache = MonthlyStatisticsCache::firstOrNew([
-                'puskesmas_id' => $examination->puskesmas_id,
-                'disease_type' => $diseaseType,
-                'year' => $date->year,
-                'month' => $date->month,
-            ]);
-
-            if (!$cache->exists) {
-                $cache->fill([
-                    'male_count' => 0,
-                    'female_count' => 0,
-                    'total_count' => 0,
-                    'standard_count' => 0,
-                    'non_standard_count' => 0,
-                    'standard_percentage' => 0.00,
-                ]);
+        
+        if ($isFirstExaminationThisMonth) {
+            // Get patient gender
+            $patient = Patient::find($examination->patient_id);
+            
+            // Is this patient considered standard for this month?
+            $isStandard = $this->isPatientStandard($examination->patient_id, $year, $month, $diseaseType);
+            
+            // Update cache counts
+            if ($patient->gender === 'male') {
+                $cache->male_count++;
+            } else {
+                $cache->female_count++;
             }
-
-            $cache->incrementPatient($patient->gender, $isStandard);
+            
+            $cache->total_count++;
+            
+            if ($isStandard) {
+                $cache->standard_count++;
+            } else {
+                $cache->non_standard_count++;
+            }
+            
+            // Update standard percentage
+            $cache->standard_percentage = $cache->total_count > 0 
+                ? round(($cache->standard_count / $cache->total_count) * 100, 2) 
+                : 0;
+                
+            $cache->save();
         }
     }
-
+    
     /**
-     * Rebuild all cache from scratch
+     * Check if this is the first examination for a patient in a specific month
      */
-    public function rebuildAllCache(): void
-    {
-        // Clear existing cache
-        MonthlyStatisticsCache::truncate();
-
-        // Rebuild HT cache
-        $this->rebuildCacheForDiseaseType('ht');
-
-        // Rebuild DM cache
-        $this->rebuildCacheForDiseaseType('dm');
-    }
-
-    /**
-     * Rebuild cache for specific disease type
-     */
-    private function rebuildCacheForDiseaseType(string $diseaseType): void
-    {
-        // Get all examinations grouped by puskesmas, year, and month
-        $examinations = $diseaseType === 'ht' ? HtExamination::all() : DmExamination::all();
-
-        // Group examinations by puskesmas, year, and month
-        $groupedExams = $examinations->groupBy([
-            'puskesmas_id',
-            function ($exam) {
-                return Carbon::parse($exam->examination_date)->year;
-            },
-            function ($exam) {
-                return Carbon::parse($exam->examination_date)->month;
+    private function isFirstExaminationInMonth(
+        int $patientId, 
+        int $puskesmasId, 
+        int $year, 
+        int $month, 
+        string $diseaseType,
+        int $excludeId = null
+    ): bool {
+        if ($diseaseType === 'ht') {
+            $query = HtExamination::where('patient_id', $patientId)
+                ->where('puskesmas_id', $puskesmasId)
+                ->where('year', $year)
+                ->where('month', $month);
+                
+            if ($excludeId) {
+                $query->where('id', '!=', $excludeId);
             }
-        ]);
-
-        foreach ($groupedExams as $puskesmasId => $yearGroups) {
-            foreach ($yearGroups as $year => $monthGroups) {
-                foreach ($monthGroups as $month => $monthExams) {
-                    $this->calculateMonthlyStats($puskesmasId, $diseaseType, $year, $month, $monthExams);
+            
+            return $query->count() === 0;
+        } else {
+            $query = DmExamination::where('patient_id', $patientId)
+                ->where('puskesmas_id', $puskesmasId)
+                ->where('year', $year)
+                ->where('month', $month);
+                
+            if ($excludeId) {
+                $query->where('id', '!=', $excludeId);
+            }
+            
+            return $query->count() === 0;
+        }
+    }
+    
+    /**
+     * Check if a patient is considered standard
+     * A patient is considered standard if they have examinations for each month
+     * since their first examination in the year
+     */
+    private function isPatientStandard(int $patientId, int $year, int $month, string $diseaseType): bool
+    {
+        // Get the first month this patient had an examination in this year
+        $firstMonthQuery = $diseaseType === 'ht' 
+            ? HtExamination::where('patient_id', $patientId)->where('year', $year)
+            : DmExamination::where('patient_id', $patientId)->where('year', $year);
+            
+        $firstMonth = $firstMonthQuery->min('month');
+        
+        if (!$firstMonth) {
+            return false;
+        }
+        
+        // Check if patient has examinations for all months from first month to current month
+        for ($m = $firstMonth; $m <= $month; $m++) {
+            $hasExamination = $diseaseType === 'ht'
+                ? HtExamination::where('patient_id', $patientId)
+                    ->where('year', $year)
+                    ->where('month', $m)
+                    ->exists()
+                : DmExamination::where('patient_id', $patientId)
+                    ->where('year', $year)
+                    ->where('month', $m)
+                    ->exists();
+                    
+            if (!$hasExamination) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Rebuild the entire statistics cache
+     */
+    public function rebuildAllCache(): bool
+    {
+        try {
+            DB::beginTransaction();
+            
+            // Clear existing cache
+            MonthlyStatisticsCache::truncate();
+            
+            // Rebuild HT cache
+            $this->rebuildCache('ht');
+            
+            // Rebuild DM cache
+            $this->rebuildCache('dm');
+            
+            DB::commit();
+            
+            return true;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error rebuilding cache: ' . $e->getMessage());
+            
+            return false;
+        }
+    }
+    
+    /**
+     * Rebuild the cache for a specific disease type
+     */
+    public function rebuildCache(string $diseaseType, ?int $year = null): bool
+    {
+        try {
+            DB::beginTransaction();
+            
+            // If year is provided, only rebuild for that year
+            if ($year) {
+                // Delete existing cache for this disease type and year
+                MonthlyStatisticsCache::where('disease_type', $diseaseType)
+                    ->where('year', $year)
+                    ->delete();
+            } else {
+                // Delete all cache for this disease type
+                MonthlyStatisticsCache::where('disease_type', $diseaseType)->delete();
+            }
+            
+            // Get all examinations grouped by puskesmas, year, and month
+            if ($diseaseType === 'ht') {
+                $query = DB::table('ht_examinations')
+                    ->select('puskesmas_id', 'year', 'month', DB::raw('COUNT(DISTINCT patient_id) as patient_count'))
+                    ->groupBy('puskesmas_id', 'year', 'month');
+                    
+                if ($year) {
+                    $query->where('year', $year);
+                }
+                
+                $examinations = $query->get();
+                
+                foreach ($examinations as $exam) {
+                    $this->buildMonthlyStatsHt(
+                        $exam->puskesmas_id, 
+                        $exam->year, 
+                        $exam->month
+                    );
+                }
+            } else {
+                $query = DB::table('dm_examinations')
+                    ->select('puskesmas_id', 'year', 'month', DB::raw('COUNT(DISTINCT patient_id) as patient_count'))
+                    ->groupBy('puskesmas_id', 'year', 'month');
+                    
+                if ($year) {
+                    $query->where('year', $year);
+                }
+                
+                $examinations = $query->get();
+                
+                foreach ($examinations as $exam) {
+                    $this->buildMonthlyStatsDm(
+                        $exam->puskesmas_id, 
+                        $exam->year, 
+                        $exam->month
+                    );
                 }
             }
+            
+            DB::commit();
+            
+            return true;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error rebuilding cache for ' . $diseaseType . ': ' . $e->getMessage());
+            
+            return false;
         }
     }
-
+    
     /**
-     * Calculate monthly statistics
+     * Build monthly statistics for HT
      */
-    private function calculateMonthlyStats($puskesmasId, $diseaseType, $year, $month, $monthExams): void
+    private function buildMonthlyStatsHt(int $puskesmasId, int $year, int $month): void
     {
-        $patientIds = $monthExams->pluck('patient_id')->unique();
-        $patients = Patient::whereIn('id', $patientIds)->get()->keyBy('id');
-
-        $maleCount = 0;
-        $femaleCount = 0;
+        // Get all patients with HT examinations in this month
+        $patientIds = HtExamination::where('puskesmas_id', $puskesmasId)
+            ->where('year', $year)
+            ->where('month', $month)
+            ->distinct('patient_id')
+            ->pluck('patient_id');
+            
+        // Get patient information
+        $patients = Patient::whereIn('id', $patientIds)->get();
+        
+        // Count male and female patients
+        $maleCount = $patients->where('gender', 'male')->count();
+        $femaleCount = $patients->where('gender', 'female')->count();
+        $totalCount = $patientIds->count();
+        
+        // Count standard and non-standard patients
         $standardCount = 0;
         $nonStandardCount = 0;
-
+        
         foreach ($patientIds as $patientId) {
-            $patient = $patients->get($patientId);
-            if (!$patient) continue;
-
-            // Count by gender
-            if ($patient->gender === 'male') {
-                $maleCount++;
-            } else {
-                $femaleCount++;
-            }
-
-            // Check if patient is standard
-            $isStandard = $this->checkIfPatientIsStandard($patientId, $year, $month, $diseaseType);
+            $isStandard = $this->isPatientStandard($patientId, $year, $month, 'ht');
             
             if ($isStandard) {
                 $standardCount++;
@@ -138,84 +292,86 @@ class StatisticsCacheService
                 $nonStandardCount++;
             }
         }
-
-        $totalCount = $maleCount + $femaleCount;
-        $standardPercentage = $totalCount > 0 ? round(($standardCount / $totalCount) * 100, 2) : 0;
-
-        MonthlyStatisticsCache::updateOrCreateStatistics($puskesmasId, $diseaseType, $year, $month, [
-            'male_count' => $maleCount,
-            'female_count' => $femaleCount,
-            'total_count' => $totalCount,
-            'standard_count' => $standardCount,
-            'non_standard_count' => $nonStandardCount,
-            'standard_percentage' => $standardPercentage,
-        ]);
-    }
-
-    /**
-     * Check if patient is standard
-     */
-    private function checkIfPatientIsStandard($patientId, $year, $currentMonth, $diseaseType): bool
-    {
-        // Get first visit in the year
-        $firstVisit = $this->getFirstVisitInYear($patientId, $year, $diseaseType);
         
-        if (!$firstVisit) {
-            return false;
-        }
-
-        $firstMonth = Carbon::parse($firstVisit->examination_date)->month;
-
-        // Patient is standard if they have visits for every month from first visit until current month
-        for ($month = $firstMonth; $month <= $currentMonth; $month++) {
-            if (!$this->hasVisitInMonth($patientId, $year, $month, $diseaseType)) {
-                return false;
+        // Calculate standard percentage
+        $standardPercentage = $totalCount > 0 
+            ? round(($standardCount / $totalCount) * 100, 2) 
+            : 0;
+            
+        // Create or update cache record
+        MonthlyStatisticsCache::updateOrCreate(
+            [
+                'puskesmas_id' => $puskesmasId,
+                'disease_type' => 'ht',
+                'year' => $year,
+                'month' => $month,
+            ],
+            [
+                'male_count' => $maleCount,
+                'female_count' => $femaleCount,
+                'total_count' => $totalCount,
+                'standard_count' => $standardCount,
+                'non_standard_count' => $nonStandardCount,
+                'standard_percentage' => $standardPercentage,
+            ]
+        );
+    }
+    
+    /**
+     * Build monthly statistics for DM
+     */
+    private function buildMonthlyStatsDm(int $puskesmasId, int $year, int $month): void
+    {
+        // Get all patients with DM examinations in this month
+        $patientIds = DmExamination::where('puskesmas_id', $puskesmasId)
+            ->where('year', $year)
+            ->where('month', $month)
+            ->distinct('patient_id')
+            ->pluck('patient_id');
+            
+        // Get patient information
+        $patients = Patient::whereIn('id', $patientIds)->get();
+        
+        // Count male and female patients
+        $maleCount = $patients->where('gender', 'male')->count();
+        $femaleCount = $patients->where('gender', 'female')->count();
+        $totalCount = $patientIds->count();
+        
+        // Count standard and non-standard patients
+        $standardCount = 0;
+        $nonStandardCount = 0;
+        
+        foreach ($patientIds as $patientId) {
+            $isStandard = $this->isPatientStandard($patientId, $year, $month, 'dm');
+            
+            if ($isStandard) {
+                $standardCount++;
+            } else {
+                $nonStandardCount++;
             }
         }
-
-        return true;
-    }
-
-    /**
-     * Get first visit in year
-     */
-    private function getFirstVisitInYear($patientId, $year, $diseaseType)
-    {
-        $query = $diseaseType === 'ht' ? HtExamination::query() : DmExamination::query();
         
-        return $query->where('patient_id', $patientId)
-            ->whereYear('examination_date', $year)
-            ->orderBy('examination_date')
-            ->first();
-    }
-
-    /**
-     * Check if patient has visit in specific month
-     */
-    private function hasVisitInMonth($patientId, $year, $month, $diseaseType): bool
-    {
-        $query = $diseaseType === 'ht' ? HtExamination::query() : DmExamination::query();
-        
-        return $query->where('patient_id', $patientId)
-            ->whereYear('examination_date', $year)
-            ->whereMonth('examination_date', $month)
-            ->exists();
-    }
-
-    /**
-     * Get previous examinations in the same month
-     */
-    private function getPreviousExaminations($patientId, $puskesmasId, $year, $month, $diseaseType, $excludeId = null)
-    {
-        $query = $diseaseType === 'ht' ? HtExamination::query() : DmExamination::query();
-        
-        return $query->where('patient_id', $patientId)
-            ->where('puskesmas_id', $puskesmasId)
-            ->whereYear('examination_date', $year)
-            ->whereMonth('examination_date', $month)
-            ->when($excludeId, function ($q) use ($excludeId) {
-                return $q->where('id', '!=', $excludeId);
-            })
-            ->get();
+        // Calculate standard percentage
+        $standardPercentage = $totalCount > 0 
+            ? round(($standardCount / $totalCount) * 100, 2) 
+            : 0;
+            
+        // Create or update cache record
+        MonthlyStatisticsCache::updateOrCreate(
+            [
+                'puskesmas_id' => $puskesmasId,
+                'disease_type' => 'dm',
+                'year' => $year,
+                'month' => $month,
+            ],
+            [
+                'male_count' => $maleCount,
+                'female_count' => $femaleCount,
+                'total_count' => $totalCount,
+                'standard_count' => $standardCount,
+                'non_standard_count' => $nonStandardCount,
+                'standard_percentage' => $standardPercentage,
+            ]
+        );
     }
 }

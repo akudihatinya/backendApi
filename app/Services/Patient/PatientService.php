@@ -2,30 +2,33 @@
 
 namespace App\Services\Patient;
 
-use App\Repositories\Contracts\PatientRepositoryInterface;
+use App\DataTransferObjects\PatientData;
+use App\Events\PatientCreated;
+use App\Exceptions\PatientNotFoundException;
 use App\Models\Patient;
+use App\Repositories\Contracts\PatientRepositoryInterface;
+use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class PatientService
 {
-    protected $patientRepository;
-
-    public function __construct(PatientRepositoryInterface $patientRepository)
-    {
-        $this->patientRepository = $patientRepository;
-    }
+    /**
+     * Create a new patient service instance.
+     */
+    public function __construct(
+        protected PatientRepositoryInterface $patientRepository
+    ) {}
 
     /**
-     * Get all patients with filtering and pagination
-     * 
-     * @param int $puskesmasId
-     * @param array $filters
-     * @param int $perPage
-     * @return \Illuminate\Pagination\LengthAwarePaginator
+     * Get all patients with filters and pagination
      */
-    public function getAllPatients(int $puskesmasId, array $filters = [], int $perPage = 15)
-    {
+    public function getAllPatients(
+        int $puskesmasId, 
+        array $filters = [], 
+        int $perPage = 15
+    ): LengthAwarePaginator {
         $query = Patient::where('puskesmas_id', $puskesmasId);
         
         // Filter by disease type
@@ -48,7 +51,7 @@ class PatientService
             }
         }
         
-        // Search by name, NIK, or BPJS
+        // Search
         if (isset($filters['search']) && !empty($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
@@ -59,7 +62,7 @@ class PatientService
             });
         }
         
-        // Handle year filtering (which needs PHP filtering)
+        // Year filtering (this needs PHP filtering because of JSON column)
         if (isset($filters['year'])) {
             $year = $filters['year'];
             $diseaseType = $filters['disease_type'] ?? null;
@@ -67,8 +70,8 @@ class PatientService
             // Get all results first
             $results = $query->get();
             
-            // Filter results for the year
-            $filteredResults = $results->filter(function ($patient) use ($year, $diseaseType) {
+            // Filter by year
+            $filtered = $results->filter(function ($patient) use ($year, $diseaseType) {
                 $htYears = $this->safeGetYears($patient->ht_years);
                 $dmYears = $this->safeGetYears($patient->dm_years);
                 
@@ -83,70 +86,117 @@ class PatientService
                 }
             });
             
-            // Create a custom paginator
-            $page = isset($filters['page']) ? (int)$filters['page'] : 1;
-            $items = $filteredResults->forPage($page, $perPage);
+            // Create paginator
+            $page = $filters['page'] ?? 1;
+            $items = $filtered->forPage($page, $perPage);
             
             return new LengthAwarePaginator(
                 $items,
-                $filteredResults->count(),
+                $filtered->count(),
                 $perPage,
                 $page,
-                ['path' => request()->url(), 'query' => request()->query()]
+                [
+                    'path' => request()->url(),
+                    'query' => request()->query(),
+                ]
             );
         }
         
-        // Standard pagination if no year filtering
+        // Return paginated results
         return $query->paginate($perPage);
     }
 
     /**
      * Create a new patient
-     * 
-     * @param array $data
-     * @return \App\Models\Patient
      */
-    public function createPatient(array $data)
+    public function createPatient(array $data): Patient
     {
         // Initialize empty arrays for years if not provided
         $data['ht_years'] = $data['ht_years'] ?? [];
         $data['dm_years'] = $data['dm_years'] ?? [];
         
-        return $this->patientRepository->create($data);
+        // Calculate age from birth date if not provided
+        if (!isset($data['age']) && isset($data['birth_date'])) {
+            $data['age'] = Carbon::parse($data['birth_date'])->age;
+        }
+        
+        DB::beginTransaction();
+        try {
+            $patient = Patient::create($data);
+            
+            // Dispatch event
+            event(new PatientCreated($patient));
+            
+            DB::commit();
+            return $patient;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error creating patient: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     /**
      * Update a patient
-     * 
-     * @param int $id
-     * @param array $data
-     * @return \App\Models\Patient|bool
      */
-    public function updatePatient(int $id, array $data)
+    public function updatePatient(int $id, array $data): Patient
     {
-        return $this->patientRepository->update($id, $data);
+        $patient = Patient::find($id);
+        
+        if (!$patient) {
+            throw new PatientNotFoundException();
+        }
+        
+        // Calculate age from birth date if provided
+        if (isset($data['birth_date']) && !isset($data['age'])) {
+            $data['age'] = Carbon::parse($data['birth_date'])->age;
+        }
+        
+        DB::beginTransaction();
+        try {
+            $patient->update($data);
+            DB::commit();
+            return $patient->fresh();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error updating patient: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     /**
      * Delete a patient
-     * 
-     * @param int $id
-     * @return bool
      */
-    public function deletePatient(int $id)
+    public function deletePatient(int $id): bool
     {
-        return $this->patientRepository->delete($id);
+        $patient = Patient::find($id);
+        
+        if (!$patient) {
+            throw new PatientNotFoundException();
+        }
+        
+        DB::beginTransaction();
+        try {
+            // Delete related examinations first
+            // Note: This is redundant if foreign keys with cascade are set up correctly
+            // but it's a safety measure
+            $patient->htExaminations()->delete();
+            $patient->dmExaminations()->delete();
+            
+            $patient->delete();
+            DB::commit();
+            return true;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error deleting patient: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     /**
      * Add examination year to patient
-     * 
-     * @param Patient $patient
-     * @param int $year
-     * @param string $type
-     * @return Patient
      */
-    public function addExaminationYear(Patient $patient, int $year, string $type)
+    public function addExaminationYear(Patient $patient, int $year, string $type): Patient
     {
         if ($type === 'ht') {
             $patient->addHtYear($year);
@@ -160,13 +210,8 @@ class PatientService
 
     /**
      * Remove examination year from patient
-     * 
-     * @param Patient $patient
-     * @param int $year
-     * @param string $type
-     * @return Patient
      */
-    public function removeExaminationYear(Patient $patient, int $year, string $type)
+    public function removeExaminationYear(Patient $patient, int $year, string $type): Patient
     {
         if ($type === 'ht') {
             $patient->removeHtYear($year);

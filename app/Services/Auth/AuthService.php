@@ -11,18 +11,14 @@ use Carbon\Carbon;
 class AuthService
 {
     /**
-     * Attempt to login a user
-     * 
-     * @param string $username
-     * @param string $password
-     * @return User|false
+     * Attempt to authenticate a user with credentials
      */
-    public function attemptLogin(string $username, string $password)
+    public function attemptLogin(string $username, string $password): ?User
     {
         $user = User::where('username', $username)->first();
         
         if (!$user || !Hash::check($password, $user->password)) {
-            return false;
+            return null;
         }
         
         return $user;
@@ -30,18 +26,17 @@ class AuthService
 
     /**
      * Create access and refresh tokens for a user
-     * 
-     * @param User $user
-     * @return array
      */
-    public function createTokens(User $user)
+    public function createTokens(User $user): array
     {
         // Generate access token (valid for 1 hour)
-        $tokenResult = $user->createToken('access_token', ['*'], now()->addHour());
+        $tokenResult = $user->createToken('access_token');
+        $tokenExpiration = config('sanctum.expiration', 60); // Minutes
+        
         $accessToken = $tokenResult->plainTextToken;
         
         // Generate refresh token (valid for 30 days)
-        $refreshToken = Str::random(60);
+        $refreshToken = Str::random(100);
         
         // Remove old refresh tokens
         UserRefreshToken::where('user_id', $user->id)->delete();
@@ -56,33 +51,30 @@ class AuthService
         return [
             'access_token' => $accessToken,
             'refresh_token' => $refreshToken,
-            'expires_in' => 3600, // 1 hour in seconds
+            'expires_in' => $tokenExpiration * 60, // Convert to seconds
         ];
     }
 
     /**
      * Refresh tokens using a refresh token
-     * 
-     * @param string $refreshToken
-     * @return array|false
      */
-    public function refreshToken(string $refreshToken)
+    public function refreshToken(string $refreshToken): ?array
     {
         $refreshTokenRecord = UserRefreshToken::where('refresh_token', $refreshToken)
             ->where('expires_at', '>', Carbon::now())
             ->first();
         
         if (!$refreshTokenRecord) {
-            return false;
+            return null;
         }
         
         $user = $refreshTokenRecord->user;
         
         if (!$user) {
-            return false;
+            return null;
         }
         
-        // Revoke all tokens
+        // Revoke existing tokens
         $user->tokens()->delete();
         
         // Generate new tokens
@@ -90,12 +82,9 @@ class AuthService
     }
 
     /**
-     * Logout a user by revoking tokens
-     * 
-     * @param User $user
-     * @return bool
+     * Log out a user by revoking all tokens
      */
-    public function logout(User $user)
+    public function logout(User $user): bool
     {
         // Revoke all tokens
         $user->tokens()->delete();
@@ -108,20 +97,16 @@ class AuthService
 
     /**
      * Change user password
-     * 
-     * @param User $user
-     * @param string $currentPassword
-     * @param string $newPassword
-     * @return bool
      */
-    public function changePassword(User $user, string $currentPassword, string $newPassword)
+    public function changePassword(User $user, string $currentPassword, string $newPassword): bool
     {
         if (!Hash::check($currentPassword, $user->password)) {
             return false;
         }
         
-        $user->password = Hash::make($newPassword);
-        $user->save();
+        $user->update([
+            'password' => Hash::make($newPassword)
+        ]);
         
         return true;
     }
