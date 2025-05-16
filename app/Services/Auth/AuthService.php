@@ -3,23 +3,33 @@
 namespace App\Services\Auth;
 
 use App\Models\User;
-use App\Models\UserRefreshToken;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
-class AuthService
+class UserAuthService
 {
+    protected $tokenService;
+
+    public function __construct(TokenService $tokenService)
+    {
+        $this->tokenService = $tokenService;
+    }
+
     /**
-     * Attempt to authenticate a user with credentials
+     * Attempt to login a user with username and password
      */
     public function attemptLogin(string $username, string $password): ?User
     {
-        $user = User::where('username', $username)->first();
-        
-        if (!$user || !Hash::check($password, $user->password)) {
+        // Attempt authentication
+        if (!Auth::attempt(['username' => $username, 'password' => $password])) {
+            Log::info('Login failed for username: ' . $username);
             return null;
         }
+        
+        // Return authenticated user
+        $user = Auth::user();
+        Log::info('User logged in successfully: ' . $user->username . ' (ID: ' . $user->id . ')');
         
         return $user;
     }
@@ -29,29 +39,16 @@ class AuthService
      */
     public function createTokens(User $user): array
     {
-        // Generate access token (valid for 1 hour)
-        $tokenResult = $user->createToken('access_token');
-        $tokenExpiration = config('sanctum.expiration', 60); // Minutes
+        // Create access token
+        $accessToken = $this->tokenService->createAccessToken($user);
         
-        $accessToken = $tokenResult->plainTextToken;
-        
-        // Generate refresh token (valid for 30 days)
-        $refreshToken = Str::random(100);
-        
-        // Remove old refresh tokens
-        UserRefreshToken::where('user_id', $user->id)->delete();
-        
-        // Save new refresh token
-        UserRefreshToken::create([
-            'user_id' => $user->id,
-            'refresh_token' => $refreshToken,
-            'expires_at' => Carbon::now()->addDays(30),
-        ]);
+        // Create refresh token
+        $refreshToken = $this->tokenService->createRefreshToken($user);
         
         return [
-            'access_token' => $accessToken,
-            'refresh_token' => $refreshToken,
-            'expires_in' => $tokenExpiration * 60, // Convert to seconds
+            'access_token' => $accessToken['token'],
+            'refresh_token' => $refreshToken['token'],
+            'expires_in' => $accessToken['expires_in'],
         ];
     }
 
@@ -60,39 +57,27 @@ class AuthService
      */
     public function refreshToken(string $refreshToken): ?array
     {
-        $refreshTokenRecord = UserRefreshToken::where('refresh_token', $refreshToken)
-            ->where('expires_at', '>', Carbon::now())
-            ->first();
-        
-        if (!$refreshTokenRecord) {
-            return null;
-        }
-        
-        $user = $refreshTokenRecord->user;
+        // Validate refresh token and get user
+        $user = $this->tokenService->validateRefreshToken($refreshToken);
         
         if (!$user) {
+            Log::warning('Invalid refresh token attempted');
             return null;
         }
         
-        // Revoke existing tokens
-        $user->tokens()->delete();
+        Log::info('Token refreshed for user: ' . $user->username . ' (ID: ' . $user->id . ')');
         
-        // Generate new tokens
-        return $this->createTokens($user);
+        // Return refreshed tokens
+        return $this->tokenService->refreshTokens($user);
     }
 
     /**
-     * Log out a user by revoking all tokens
+     * Logout a user by revoking all tokens
      */
-    public function logout(User $user): bool
+    public function logout(User $user): void
     {
-        // Revoke all tokens
-        $user->tokens()->delete();
-        
-        // Delete refresh tokens
-        UserRefreshToken::where('user_id', $user->id)->delete();
-        
-        return true;
+        $this->tokenService->revokeAllTokens($user);
+        Log::info('User logged out: ' . $user->username . ' (ID: ' . $user->id . ')');
     }
 
     /**
@@ -100,13 +85,17 @@ class AuthService
      */
     public function changePassword(User $user, string $currentPassword, string $newPassword): bool
     {
+        // Verify current password
         if (!Hash::check($currentPassword, $user->password)) {
+            Log::warning('Failed password change attempt for user ID: ' . $user->id . ' - Current password mismatch');
             return false;
         }
         
-        $user->update([
-            'password' => Hash::make($newPassword)
-        ]);
+        // Update password
+        $user->password = Hash::make($newPassword);
+        $user->save();
+        
+        Log::info('Password changed for user ID: ' . $user->id);
         
         return true;
     }

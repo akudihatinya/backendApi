@@ -15,120 +15,95 @@ class ArchiveService
      */
     public function archiveExaminations(): array
     {
-        $lastYear = Carbon::now()->subYear()->year;
+        $currentYear = Carbon::now()->year;
+        $prevYear = $currentYear - 1;
         
         try {
             DB::beginTransaction();
             
             // Archive HT examinations
-            $archivedHt = HtExamination::where('year', $lastYear)
+            $htCount = HtExamination::where('year', $prevYear)
                 ->where('is_archived', false)
                 ->update(['is_archived' => true]);
-            
+                
             // Archive DM examinations
-            $archivedDm = DmExamination::where('year', $lastYear)
+            $dmCount = DmExamination::where('year', $prevYear)
                 ->where('is_archived', false)
                 ->update(['is_archived' => true]);
-            
+                
             DB::commit();
             
-            Log::info("Archived examinations: HT: {$archivedHt}, DM: {$archivedDm}");
+            Log::info("Archived examinations for year $prevYear: $htCount HT, $dmCount DM");
             
             return [
-                'archived_ht' => $archivedHt,
-                'archived_dm' => $archivedDm,
+                'status' => 'success',
+                'archived_ht' => $htCount,
+                'archived_dm' => $dmCount,
+                'year' => $prevYear,
             ];
+            
         } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Error archiving examinations: ' . $e->getMessage());
+            DB::rollback();
+            
+            Log::error("Error archiving examinations: " . $e->getMessage(), [
+                'year' => $prevYear,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             
             return [
+                'status' => 'error',
                 'archived_ht' => 0,
                 'archived_dm' => 0,
+                'year' => $prevYear,
                 'error' => $e->getMessage(),
             ];
         }
     }
-    
-    /**
-     * Archive examinations for a specific year
-     */
-    public function archiveExaminationsByYear(int $year): array
-    {
-        if ($year >= Carbon::now()->year) {
-            return [
-                'archived_ht' => 0,
-                'archived_dm' => 0,
-                'error' => 'Cannot archive current or future year examinations.',
-            ];
-        }
-        
-        try {
-            DB::beginTransaction();
-            
-            // Archive HT examinations
-            $archivedHt = HtExamination::where('year', $year)
-                ->where('is_archived', false)
-                ->update(['is_archived' => true]);
-            
-            // Archive DM examinations
-            $archivedDm = DmExamination::where('year', $year)
-                ->where('is_archived', false)
-                ->update(['is_archived' => true]);
-            
-            DB::commit();
-            
-            Log::info("Archived examinations for year {$year}: HT: {$archivedHt}, DM: {$archivedDm}");
-            
-            return [
-                'archived_ht' => $archivedHt,
-                'archived_dm' => $archivedDm,
-            ];
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error("Error archiving examinations for year {$year}: " . $e->getMessage());
-            
-            return [
-                'archived_ht' => 0,
-                'archived_dm' => 0,
-                'error' => $e->getMessage(),
-            ];
-        }
-    }
-    
+
     /**
      * Unarchive examinations for a specific year
      */
-    public function unarchiveExaminationsByYear(int $year): array
+    public function unarchiveExaminations(int $year): array
     {
         try {
             DB::beginTransaction();
             
             // Unarchive HT examinations
-            $unarchivedHt = HtExamination::where('year', $year)
+            $htCount = HtExamination::where('year', $year)
                 ->where('is_archived', true)
                 ->update(['is_archived' => false]);
-            
+                
             // Unarchive DM examinations
-            $unarchivedDm = DmExamination::where('year', $year)
+            $dmCount = DmExamination::where('year', $year)
                 ->where('is_archived', true)
                 ->update(['is_archived' => false]);
-            
+                
             DB::commit();
             
-            Log::info("Unarchived examinations for year {$year}: HT: {$unarchivedHt}, DM: {$unarchivedDm}");
+            Log::info("Unarchived examinations for year $year: $htCount HT, $dmCount DM");
             
             return [
-                'unarchived_ht' => $unarchivedHt,
-                'unarchived_dm' => $unarchivedDm,
+                'status' => 'success',
+                'unarchived_ht' => $htCount,
+                'unarchived_dm' => $dmCount,
+                'year' => $year,
             ];
+            
         } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error("Error unarchiving examinations for year {$year}: " . $e->getMessage());
+            DB::rollback();
+            
+            Log::error("Error unarchiving examinations: " . $e->getMessage(), [
+                'year' => $year,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             
             return [
+                'status' => 'error',
                 'unarchived_ht' => 0,
                 'unarchived_dm' => 0,
+                'year' => $year,
                 'error' => $e->getMessage(),
             ];
         }
